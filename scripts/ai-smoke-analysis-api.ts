@@ -64,10 +64,20 @@ async function run(): Promise<void> {
     throw new Error("The API response is missing required analysis metadata.");
   }
 
+  if (result.findings.length === 0) {
+    throw new Error("The deliberately incorrect Teralune copy produced no findings.");
+  }
+
   for (const finding of result.findings) {
-    for (const reference of finding.evidenceReferences ?? []) {
+    if (!finding.evidenceReferences?.length) {
+      throw new Error("A governance finding is missing supporting evidence references.");
+    }
+    for (const reference of finding.evidenceReferences) {
       if (!expectedSourceIds.has(reference.sourceId)) {
         throw new Error("The API returned an evidence reference outside the Teralune fixture.");
+      }
+      if (!reference.sourceTitle.trim() || !reference.versionId?.trim()) {
+        throw new Error("A Teralune evidence reference is missing its title or version.");
       }
     }
   }

@@ -208,6 +208,16 @@ test("rejects invalid backend responses without exposing provider details", () =
 test("validates the frontend response payload before review creation", () => {
   const payload = adaptBackendResponse(backendResponse, frontendRequest.textContent);
   assert.equal(parseAnalysisResponsePayload(payload).providerUsed, "fake-ai");
+  for (const field of ["comments", "category", "resolved"] as const) {
+    const invalidPayload = structuredClone(payload) as unknown as {
+      findings: Array<Record<string, unknown>>;
+    };
+    delete invalidPayload.findings[0][field];
+    assert.throws(
+      () => parseAnalysisResponsePayload(invalidPayload),
+      InvalidAnalysisResponsePayloadError,
+    );
+  }
   assert.throws(
     () => parseAnalysisResponsePayload({ ...payload, fallbackUsed: "false" }),
     InvalidAnalysisResponsePayloadError,
