@@ -7,8 +7,10 @@ import {
   AiEvidenceValidationError,
   AiAnalysisUnavailableError,
   AiProviderError,
+  InvalidAiProviderConfigurationError,
   GeminiProvider,
   OpenRouterProvider,
+  createAiAnalysisServiceFromEnvironment,
   type AiProvider,
 } from "../lib/ai";
 import { BrandContextSchema, type BrandContext } from "../lib/contracts";
@@ -51,6 +53,17 @@ const candidate = {
     },
   ],
 };
+
+const successfulProviderFetch = async (url: string): Promise<Response> =>
+  url.includes("generativelanguage.googleapis.com")
+    ? new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(candidate) }] } }] }),
+        { status: 200 },
+      )
+    : new Response(
+        JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) } }] }),
+        { status: 200 },
+      );
 
 function mockProvider(
   name: string,
@@ -198,4 +211,78 @@ test("provider timeout produces a safe typed error", async () => {
       }),
   });
   await assert.rejects(provider.analyze({ systemPrompt: "s", userPrompt: "u" }), /timed out/);
+});
+
+test("selects Gemini as primary by default and reports no fallback", async () => {
+  const service = createAiAnalysisServiceFromEnvironment({
+    GEMINI_API_KEY: "gemini-key",
+    GEMINI_MODEL: "gemini-model",
+    OPENROUTER_API_KEY: "openrouter-key",
+    OPENROUTER_MODEL: "openrouter-model",
+  }, { fetcher: successfulProviderFetch });
+  const result = await service.analyze({ content: "Stop now", brandContext: context });
+  assert.equal(result.providerUsed, "gemini");
+  assert.equal(result.fallbackUsed, false);
+});
+
+test("selects OpenRouter as primary when configured", async () => {
+  const service = createAiAnalysisServiceFromEnvironment({
+    AI_PRIMARY_PROVIDER: "openrouter",
+    GEMINI_API_KEY: "gemini-key",
+    GEMINI_MODEL: "gemini-model",
+    OPENROUTER_API_KEY: "openrouter-key",
+    OPENROUTER_MODEL: "openrouter-model",
+  }, { fetcher: successfulProviderFetch });
+  const result = await service.analyze({ content: "Stop now", brandContext: context });
+  assert.equal(result.providerUsed, "openrouter");
+  assert.equal(result.fallbackUsed, false);
+});
+
+test("uses the only configured provider as primary regardless of selection", async () => {
+  for (const environment of [
+    { AI_PRIMARY_PROVIDER: "openrouter", GEMINI_API_KEY: "gemini-key", GEMINI_MODEL: "gemini-model" },
+    { AI_PRIMARY_PROVIDER: "gemini", OPENROUTER_API_KEY: "openrouter-key", OPENROUTER_MODEL: "openrouter-model" },
+  ]) {
+    const service = createAiAnalysisServiceFromEnvironment(environment, {
+      fetcher: successfulProviderFetch,
+    });
+    const result = await service.analyze({ content: "Stop now", brandContext: context });
+    assert.equal(result.fallbackUsed, false);
+  }
+});
+
+test("falls back after primary failure and keeps provider failures secret", async () => {
+  const service = new AiAnalysisService({
+    primary: mockProvider("gemini", {}, new Error("secret-api-key")),
+    fallback: mockProvider("openrouter", candidate),
+  });
+  const result = await service.analyze({ content: "Stop now", brandContext: context });
+  assert.equal(result.providerUsed, "openrouter");
+  assert.equal(result.fallbackUsed, true);
+
+  await assert.rejects(
+    new AiAnalysisService({
+      primary: mockProvider("gemini", {}, new Error("secret-api-key")),
+    }).analyze({ content: "Stop now", brandContext: context }),
+    (error: unknown) =>
+      error instanceof AiAnalysisUnavailableError &&
+      !JSON.stringify(error).includes("secret-api-key"),
+  );
+});
+
+test("rejects invalid provider selection and handles missing providers", async () => {
+  assert.throws(
+    () =>
+      createAiAnalysisServiceFromEnvironment({
+        AI_PRIMARY_PROVIDER: "anthropic",
+      }),
+    InvalidAiProviderConfigurationError,
+  );
+  await assert.rejects(
+    createAiAnalysisServiceFromEnvironment({}).analyze({
+      content: "content",
+      brandContext: context,
+    }),
+    AiAnalysisUnavailableError,
+  );
 });
