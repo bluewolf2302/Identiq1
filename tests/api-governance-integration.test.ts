@@ -150,56 +150,55 @@ test("maps AI failure to service unavailable instead of clean success", async ()
       },
     },
   });
-
-  test("maps missing brand and deterministic failures to safe HTTP errors", async () => {
-    const missingBrand = await handleAnalysisRequest(frontendRequest, {
-      orchestrator: {
-        analyze: async () => {
-          throw new AnalysisOrchestrationError(
-            "brand-context",
-            "No brand knowledge was found.",
-            new BrandNotFoundError("brand-001"),
-          );
-        },
-      },
-    });
-    assert.equal(missingBrand.status, 404);
-    assert.equal(
-      (missingBrand.body as { error: string }).error,
-      "No approved brand context was found for this submission.",
-    );
-
-    const deterministicFailure = await handleAnalysisRequest(frontendRequest, {
-      orchestrator: {
-        analyze: async () => {
-          throw new AnalysisOrchestrationError(
-            "deterministic",
-            "Deterministic analysis failed.",
-          );
-        },
-      },
-    });
-    assert.equal(deterministicFailure.status, 500);
-    assert.equal(
-      (deterministicFailure.body as { error: string }).error,
-      "Deterministic governance analysis failed.",
-    );
-  });
-
-  test("rejects invalid backend responses without exposing provider details", () => {
-    assert.throws(
-      () =>
-        adaptBackendResponse(
-          { providerUsed: "provider-secret-value" },
-          frontendRequest.textContent,
-        ),
-      InvalidBackendAnalysisResponseError,
-    );
-  });
-
   assert.equal(result.status, 503);
   assert.equal(
     (result.body as { error: string }).error,
     "AI semantic analysis is currently unavailable.",
+  );
+});
+
+test("maps missing brand and deterministic failures to safe HTTP errors", async () => {
+  const missingBrand = await handleAnalysisRequest(frontendRequest, {
+    orchestrator: {
+      analyze: async () => {
+        throw new AnalysisOrchestrationError(
+          "brand-context",
+          "No brand knowledge was found.",
+          new BrandNotFoundError("brand-001"),
+        );
+      },
+    },
+  });
+  assert.equal(missingBrand.status, 404);
+  assert.equal(
+    (missingBrand.body as { error: string }).error,
+    "No approved brand context was found for this submission.",
+  );
+
+  const deterministicFailure = await handleAnalysisRequest(frontendRequest, {
+    orchestrator: {
+      analyze: async () => {
+        throw new AnalysisOrchestrationError(
+          "deterministic",
+          "Deterministic analysis failed.",
+        );
+      },
+    },
+  });
+  assert.equal(deterministicFailure.status, 500);
+  assert.equal(
+    (deterministicFailure.body as { error: string }).error,
+    "Deterministic governance analysis failed.",
+  );
+});
+
+test("rejects invalid backend responses without exposing provider details", () => {
+  assert.throws(
+    () =>
+      adaptBackendResponse(
+        { providerUsed: "provider-secret-value" },
+        frontendRequest.textContent,
+      ),
+    InvalidBackendAnalysisResponseError,
   );
 });

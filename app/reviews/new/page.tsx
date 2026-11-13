@@ -55,6 +55,8 @@ export default function NewReviewPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const MAX_ASSET_BASE64_CHARS = 680_000;
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -69,7 +71,10 @@ export default function NewReviewPage() {
           setAssetPreviewUrl(reader.result);
           const commaIndex = reader.result.indexOf(",");
           if (commaIndex !== -1) {
-            setAssetBase64(reader.result.slice(commaIndex + 1));
+            const rawBase64 = reader.result.slice(commaIndex + 1);
+            setAssetBase64(
+              rawBase64.length <= MAX_ASSET_BASE64_CHARS ? rawBase64 : undefined,
+            );
           }
         }
       };
@@ -98,7 +103,7 @@ export default function NewReviewPage() {
     setAssetPreviewUrl(undefined);
     setAssetName(sample.assetName);
     setAssetBase64(undefined);
-    setAssetMimeType("image/jpeg");
+    setAssetMimeType("application/pdf");
     setErrorMessage("");
   };
 
@@ -132,18 +137,27 @@ export default function NewReviewPage() {
           textContent: textContent.trim(),
           submissionId,
           assetName,
-          assetBase64,
+          ...(assetBase64 ? { assetBase64 } : {}),
           assetMimeType,
           knowledgeSummary: approvedRules,
         }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Analysis request failed");
+      const responseText = await res.text();
+      let data: AnalysisResponsePayload;
+      try {
+        data = JSON.parse(responseText) as AnalysisResponsePayload;
+      } catch {
+        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+          throw new Error("Server returned an HTML error page. Please check API credentials and server logs.");
+        }
+        throw new Error(responseText || "Analysis request failed");
       }
 
-      const data = (await res.json()) as AnalysisResponsePayload;
+      if (!res.ok) {
+        throw new Error((data as unknown as { error?: string }).error || "Analysis request failed");
+      }
+
       const themes: PastelTheme[] = ["pink", "peach", "lavender", "mint", "blue", "yellow"];
       const newId = data.submissionId ?? submissionId;
 

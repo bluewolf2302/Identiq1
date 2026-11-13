@@ -8,23 +8,39 @@ import {
   type ReviewFinding,
 } from "../contracts";
 
+const optionalNonEmptyString = z.preprocess(
+  (v) => (v === null || (typeof v === "string" && !v.trim()) ? undefined : v),
+  z.string().trim().min(1).optional(),
+);
+
+const optionalPositiveInt = z.preprocess(
+  (v) => (v === null ? undefined : v),
+  z.number().int().positive().optional(),
+);
+
 const CandidateEvidenceSchema = z
   .object({
     sourceId: z.string().min(1),
     versionId: z.string().min(1),
     sourceTitle: z.string().min(1),
     sourceType: z.string().min(1),
-    excerpt: z.string().min(1).optional(),
-    pageNumber: z.number().int().positive().optional(),
-    section: z.string().min(1).optional(),
+    excerpt: optionalNonEmptyString,
+    pageNumber: optionalPositiveInt,
+    section: optionalNonEmptyString,
   })
   .strict();
 
 const CandidateLocationSchema = z
   .object({
-    startOffset: z.number().int().nonnegative().optional(),
-    endOffset: z.number().int().nonnegative().optional(),
-    quote: z.string().min(1).optional(),
+    startOffset: z.preprocess(
+      (v) => (v === null ? undefined : v),
+      z.number().int().nonnegative().optional(),
+    ),
+    endOffset: z.preprocess(
+      (v) => (v === null ? undefined : v),
+      z.number().int().nonnegative().optional(),
+    ),
+    quote: optionalNonEmptyString,
   })
   .strict()
   .refine(
@@ -37,29 +53,57 @@ const CandidateLocationSchema = z
 
 export const AiFindingCandidateSchema = z
   .object({
-    category: z.enum([
+    category: z.preprocess((val) => {
+      if (typeof val !== "string") return "FACT_VERIFICATION";
+      const upper = val.trim().toUpperCase();
+      if (upper.includes("TONE") || upper.includes("TERM")) return "TONE_AND_TERMINOLOGY";
+      if (upper.includes("CLAIM") || upper.includes("FACT") || upper.includes("BRAND")) return "FACT_VERIFICATION";
+      if (upper.includes("PROMO") || upper.includes("LEGAL") || upper.includes("USAGE")) return "PROMOTIONAL_CLAIM";
+      if (upper.includes("VISUAL") || upper.includes("LOGO") || upper.includes("COLOUR")) return "VISUAL_COMPLIANCE";
+      if (upper.includes("ACCESS")) return "ACCESSIBILITY";
+      return "FACT_VERIFICATION";
+    }, z.enum([
       "TONE_AND_TERMINOLOGY",
       "FACT_VERIFICATION",
       "PROMOTIONAL_CLAIM",
       "VISUAL_COMPLIANCE",
       "ACCESSIBILITY",
-    ]),
-    severity: z.enum(["HIGH", "MEDIUM", "LOW", "INFO"]),
-    status: z.enum([
+    ])),
+    severity: z.preprocess((val) => {
+      if (typeof val !== "string") return "MEDIUM";
+      const upper = val.trim().toUpperCase();
+      if (["HIGH", "MEDIUM", "LOW", "INFO"].includes(upper)) return upper;
+      if (upper === "CRITICAL" || upper === "SEVERE") return "HIGH";
+      return "MEDIUM";
+    }, z.enum(["HIGH", "MEDIUM", "LOW", "INFO"])),
+    status: z.preprocess((val) => {
+      if (typeof val !== "string") return "UNVERIFIED";
+      const upper = val.trim().toUpperCase();
+      if (["SUPPORTED", "CONFLICTING", "UNVERIFIED", "NEEDS_HUMAN_REVIEW"].includes(upper)) return upper;
+      if (upper === "FALSE" || upper === "VIOLATION") return "CONFLICTING";
+      if (upper === "TRUE" || upper === "PASS") return "SUPPORTED";
+      return "UNVERIFIED";
+    }, z.enum([
       "SUPPORTED",
       "CONFLICTING",
       "UNVERIFIED",
       "NEEDS_HUMAN_REVIEW",
-    ]),
+    ])),
     issue: z.string().trim().min(1),
     description: z.string().trim().min(1),
-    detectedValue: z.string().trim().min(1).optional(),
-    expectedValue: z.string().trim().min(1).optional(),
+    detectedValue: optionalNonEmptyString,
+    expectedValue: optionalNonEmptyString,
     explanation: z.string().trim().min(1),
-    suggestedCorrection: z.string().trim().min(1).optional(),
+    suggestedCorrection: optionalNonEmptyString,
     evidenceReferences: z.array(CandidateEvidenceSchema).min(1),
-    location: CandidateLocationSchema.optional(),
-    confidence: z.number().min(0).max(1).optional(),
+    location: z.preprocess(
+      (v) => (v === null ? undefined : v),
+      CandidateLocationSchema.optional(),
+    ),
+    confidence: z.preprocess(
+      (v) => (v === null ? undefined : v),
+      z.number().min(0).max(1).optional(),
+    ),
   })
   .strict();
 
@@ -120,7 +164,7 @@ export function parseAndValidateCandidates(
     }
 
     const location = candidate.location
-      ? validateLocation(candidate.location, content, index)
+      ? validateLocation(candidate.location, content)
       : undefined;
     const evidenceReferences: EvidenceReference[] = candidate.evidenceReferences;
     const finding = ReviewFindingSchema.parse({
@@ -137,7 +181,6 @@ export function parseAndValidateCandidates(
 function validateLocation(
   location: AiFindingCandidate["location"],
   content: string,
-  index: number,
 ) {
   if (!location) {
     return undefined;
@@ -145,27 +188,27 @@ function validateLocation(
   if (
     location.startOffset !== undefined &&
     location.endOffset !== undefined &&
-    (location.endOffset > content.length ||
-      location.startOffset > location.endOffset)
+    location.endOffset <= content.length &&
+    location.startOffset <= location.endOffset
   ) {
-    throw new AiEvidenceValidationError(
-      `AI finding ${index} contained an invalid text location.`,
-    );
+    if (
+      !location.quote ||
+      content.slice(location.startOffset, location.endOffset) === location.quote
+    ) {
+      return {
+        startOffset: location.startOffset,
+        endOffset: location.endOffset,
+      };
+    }
   }
-  if (
-    location.quote &&
-    (location.startOffset === undefined ||
-      content.slice(
-        location.startOffset,
-        location.endOffset ?? location.startOffset + location.quote.length,
-      ) !== location.quote)
-  ) {
-    throw new AiEvidenceValidationError(
-      `AI finding ${index} contained a location quote that does not match submitted text.`,
-    );
+  if (location.quote) {
+    const idx = content.indexOf(location.quote);
+    if (idx !== -1) {
+      return {
+        startOffset: idx,
+        endOffset: idx + location.quote.length,
+      };
+    }
   }
-  return {
-    startOffset: location.startOffset,
-    endOffset: location.endOffset,
-  };
+  return undefined;
 }

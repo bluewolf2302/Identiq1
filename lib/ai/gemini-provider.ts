@@ -11,7 +11,69 @@ import {
 const CANDIDATE_SCHEMA = {
   type: "OBJECT",
   properties: {
-    findings: { type: "ARRAY", items: { type: "OBJECT" } },
+    findings: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          category: {
+            type: "STRING",
+            enum: [
+              "TONE_AND_TERMINOLOGY",
+              "FACT_VERIFICATION",
+              "PROMOTIONAL_CLAIM",
+              "VISUAL_COMPLIANCE",
+              "ACCESSIBILITY",
+            ],
+          },
+          severity: {
+            type: "STRING",
+            enum: ["HIGH", "MEDIUM", "LOW", "INFO"],
+          },
+          status: {
+            type: "STRING",
+            enum: [
+              "SUPPORTED",
+              "CONFLICTING",
+              "UNVERIFIED",
+              "NEEDS_HUMAN_REVIEW",
+            ],
+          },
+          issue: { type: "STRING" },
+          description: { type: "STRING" },
+          detectedValue: { type: "STRING", nullable: true },
+          expectedValue: { type: "STRING", nullable: true },
+          explanation: { type: "STRING" },
+          suggestedCorrection: { type: "STRING", nullable: true },
+          evidenceReferences: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                sourceId: { type: "STRING" },
+                versionId: { type: "STRING" },
+                sourceTitle: { type: "STRING" },
+                sourceType: { type: "STRING" },
+                excerpt: { type: "STRING", nullable: true },
+                pageNumber: { type: "INTEGER", nullable: true },
+                section: { type: "STRING", nullable: true },
+              },
+              required: ["sourceId", "versionId", "sourceTitle", "sourceType"],
+            },
+          },
+          confidence: { type: "NUMBER", nullable: true },
+        },
+        required: [
+          "category",
+          "severity",
+          "status",
+          "issue",
+          "description",
+          "explanation",
+          "evidenceReferences",
+        ],
+      },
+    },
   },
   required: ["findings"],
 };
@@ -30,7 +92,7 @@ export class GeminiProvider implements AiProvider {
     this.config = {
       ...config,
       model: config.model.trim(),
-      timeoutMs: config.timeoutMs ?? 20_000,
+      timeoutMs: config.timeoutMs ?? 55_000,
       fetcher: config.fetcher ?? fetch,
     };
   }
@@ -52,6 +114,9 @@ export class GeminiProvider implements AiProvider {
             generationConfig: {
               responseMimeType: "application/json",
               responseJsonSchema: CANDIDATE_SCHEMA,
+              ...(this.config.model.includes("flash")
+                ? { thinkingConfig: { thinkingBudget: 0 } }
+                : {}),
             },
           }),
           signal: controller.signal,
