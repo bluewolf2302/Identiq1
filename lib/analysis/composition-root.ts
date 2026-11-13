@@ -9,7 +9,7 @@ import { AnalysisOrchestrator } from "./analysis-orchestrator";
 let orchestrator: AnalysisOrchestrator | undefined;
 
 export function createAnalysisOrchestrator(): AnalysisOrchestrator {
-  if (!orchestrator) {
+  if (!orchestrator || process.env.NODE_ENV !== "production") {
     const repository = new MockBrandKnowledgeRepository();
     orchestrator = new AnalysisOrchestrator({
       brandContextService: new BrandContextService(repository),

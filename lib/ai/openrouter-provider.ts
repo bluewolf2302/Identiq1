@@ -12,7 +12,83 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const CANDIDATE_SCHEMA = {
   type: "object",
   properties: {
-    findings: { type: "array", items: { type: "object" } },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            enum: [
+              "TONE_AND_TERMINOLOGY",
+              "FACT_VERIFICATION",
+              "PROMOTIONAL_CLAIM",
+              "VISUAL_COMPLIANCE",
+              "ACCESSIBILITY",
+            ],
+          },
+          severity: {
+            type: "string",
+            enum: ["HIGH", "MEDIUM", "LOW", "INFO"],
+          },
+          status: {
+            type: "string",
+            enum: [
+              "SUPPORTED",
+              "CONFLICTING",
+              "UNVERIFIED",
+              "NEEDS_HUMAN_REVIEW",
+            ],
+          },
+          issue: { type: "string" },
+          description: { type: "string" },
+          detectedValue: { type: ["string", "null"] },
+          expectedValue: { type: ["string", "null"] },
+          explanation: { type: "string" },
+          suggestedCorrection: { type: ["string", "null"] },
+          evidenceReferences: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                sourceId: { type: "string" },
+                versionId: { type: "string" },
+                sourceTitle: { type: "string" },
+                sourceType: { type: "string" },
+                excerpt: { type: ["string", "null"] },
+                pageNumber: { type: ["integer", "null"] },
+                section: { type: ["string", "null"] },
+              },
+              required: [
+                "sourceId",
+                "versionId",
+                "sourceTitle",
+                "sourceType",
+                "excerpt",
+                "pageNumber",
+                "section",
+              ],
+              additionalProperties: false,
+            },
+          },
+          confidence: { type: ["number", "null"] },
+        },
+        required: [
+          "category",
+          "severity",
+          "status",
+          "issue",
+          "description",
+          "detectedValue",
+          "expectedValue",
+          "explanation",
+          "suggestedCorrection",
+          "evidenceReferences",
+          "confidence",
+        ],
+        additionalProperties: false,
+      },
+    },
   },
   required: ["findings"],
   additionalProperties: false,
@@ -31,8 +107,9 @@ export class OpenRouterProvider implements AiProvider {
     }
     this.config = {
       ...config,
+      apiKey: config.apiKey.trim(),
       model: config.model.trim(),
-      timeoutMs: config.timeoutMs ?? 20_000,
+      timeoutMs: config.timeoutMs ?? 30_000,
       fetcher: config.fetcher ?? fetch,
     };
   }
@@ -49,6 +126,8 @@ export class OpenRouterProvider implements AiProvider {
         },
         body: JSON.stringify({
           model: this.config.model,
+          max_tokens: 1800,
+          reasoning: { effort: "minimal" },
           messages: [
             { role: "system", content: request.systemPrompt },
             { role: "user", content: request.userPrompt },

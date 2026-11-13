@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { BrandContextSchema } from "../contracts";
 import {
   AiProviderError,
@@ -71,7 +73,46 @@ export class AiAnalysisService {
   }
 }
 
+function parseDotEnvFile(filePath: string): Record<string, string> {
+  try {
+    if (!fs.existsSync(filePath)) return {};
+    const content = fs.readFileSync(filePath, "utf8");
+    const parsed: Record<string, string> = {};
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx <= 0) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let value = line.slice(eqIdx + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      parsed[key] = value;
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
 export function createAiAnalysisServiceFromEnvironment(): AiAnalysisService {
+  if (typeof process !== "undefined") {
+    const cwd = process.cwd();
+    const envOverrides = {
+      ...parseDotEnvFile(path.join(cwd, ".env")),
+      ...parseDotEnvFile(path.join(cwd, ".env.local")),
+    };
+    for (const [key, value] of Object.entries(envOverrides)) {
+      if (value !== "") {
+        process.env[key] = value;
+      }
+    }
+  }
+
   const primary =
     process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_MODEL
       ? new OpenRouterProvider({
