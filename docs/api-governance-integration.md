@@ -1,8 +1,8 @@
 # Next.js governance API integration
 
-The `/api/analyze` route now uses the Phase 5 `AnalysisOrchestrator`. The
-legacy `lib/ai/analyzer.ts` is no longer imported by the route and is not an
-active production analysis path.
+The `/api/analyze` route uses the `AnalysisOrchestrator` for the text-based
+Teralune demo workflow. The legacy `lib/ai/analyzer.ts` is no longer imported
+by the route and is not an active production analysis path.
 
 ## Server-side composition
 
@@ -11,7 +11,8 @@ active production analysis path.
 1. `MockBrandKnowledgeRepository`
 2. `BrandContextService`
 3. `DeterministicTextGovernanceEngine`
-4. `createAiAnalysisServiceFromEnvironment()`
+4. `createAiAnalysisServiceFromEnvironment()` with configurable provider
+   priority and fallback
 5. `AnalysisOrchestrator`
 
 The composition root is server-only by usage: it is imported by the server
@@ -25,6 +26,12 @@ fictional brand-guidelines PDF. The generic `brand-001` fixture remains
 available for contract tests but is not associated with Teralune. The fixture
 is not connected to Supabase or live Knowledge Hub data. No Supabase schema or
 migration was added.
+
+The provider factory supports `gemini` and `openrouter` through the
+server-only `AI_PRIMARY_PROVIDER` setting. When both providers are configured,
+the selected provider is called first and the other provider is attempted once
+only after a primary failure. If only one provider is configured, it is treated
+as primary and a successful response reports `fallbackUsed: false`.
 
 ## Request adapter
 
@@ -93,6 +100,28 @@ mapping is:
 
 Provider credentials and raw provider errors are not included in responses.
 
+The frontend validates successful response payloads before creating a local
+review, so failed requests do not create a review or navigate to Review Studio.
+
+## Manual API smoke test
+
+Start the application separately:
+
+```text
+npm run dev
+```
+
+With a configured server-side provider, run:
+
+```text
+npm run ai:smoke:api
+```
+
+The smoke test sends a real HTTP POST to `http://localhost:3000/api/analyze`
+using the controlled Teralune sample. It checks response metadata and evidence
+source IDs without printing credentials. It is not part of `npm test` and
+requires the local server and an available configured provider.
+
 ## Legacy analyzer status
 
 `lib/ai/analyzer.ts` remains in the repository for compatibility with the
@@ -111,3 +140,6 @@ retired. The API route does not use its mock fallback.
 - The UI still uses localStorage for reviews and review decisions.
 - The display compliance score is derived at the adapter boundary, not a
   canonical backend score.
+- Phase 2 analyzes submitted text only. Image and PDF attachments remain
+  reference material; multimodal analysis and durable asset ingestion are not
+  enabled.

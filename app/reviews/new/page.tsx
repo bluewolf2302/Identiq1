@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
+import { parseAnalysisResponsePayload } from "@/lib/analysis/api-adapters";
 import {
   AnalysisResponsePayload,
   ContentType,
@@ -144,18 +145,27 @@ export default function NewReviewPage() {
       });
 
       const responseText = await res.text();
+      if (!res.ok) {
+        let errorMessage = "Analysis request failed.";
+        try {
+          const errorBody = JSON.parse(responseText) as { error?: unknown };
+          if (typeof errorBody.error === "string" && errorBody.error.trim()) {
+            errorMessage = errorBody.error;
+          }
+        } catch {
+          // Keep the safe default for non-JSON error responses.
+        }
+        throw new Error(errorMessage);
+      }
+
       let data: AnalysisResponsePayload;
       try {
-        data = JSON.parse(responseText) as AnalysisResponsePayload;
+        data = parseAnalysisResponsePayload(JSON.parse(responseText));
       } catch {
         if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
           throw new Error("Server returned an HTML error page. Please check API credentials and server logs.");
         }
-        throw new Error(responseText || "Analysis request failed");
-      }
-
-      if (!res.ok) {
-        throw new Error((data as unknown as { error?: string }).error || "Analysis request failed");
+        throw new Error("The analysis response was invalid. Please try again.");
       }
 
       const themes: PastelTheme[] = ["pink", "peach", "lavender", "mint", "blue", "yellow"];
@@ -178,6 +188,7 @@ export default function NewReviewPage() {
         findings: data.findings,
         pastelTheme: themes[Math.floor(Math.random() * themes.length)],
         providerUsed: data.providerUsed,
+        fallbackUsed: data.fallbackUsed,
         analysisStatus: data.analysisStatus ?? "COMPLETED",
         analysisRunId: data.analysisRunId,
       };
@@ -358,7 +369,7 @@ export default function NewReviewPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#141414] truncate">{assetName}</p>
                   <p className="text-[11px] text-[#14532D] inline-flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Ready for multimodal review
+                    <CheckCircle2 className="w-3 h-3" /> Attached for reference; text analysis only
                   </p>
                 </div>
               </div>
@@ -380,7 +391,7 @@ export default function NewReviewPage() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-[#E7E1DA]">
           <p className="text-xs text-[#6B6560]">
-            Powered by Identiq Server AI Pipeline (OpenRouter primary · Gemini fallback)
+            Text analysis powered by the configured server AI provider. Image and PDF analysis is not enabled yet.
           </p>
           <button
             type="submit"

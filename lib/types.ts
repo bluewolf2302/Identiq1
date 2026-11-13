@@ -74,6 +74,7 @@ export interface ReviewSubmission {
   pastelTheme: PastelTheme;
   reviewerNotes?: string;
   providerUsed?: string;
+  fallbackUsed?: boolean;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
 }

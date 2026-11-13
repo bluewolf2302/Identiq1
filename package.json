@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test",
-    "ai:smoke:gemini": "tsx scripts/ai-smoke-gemini.ts"
+    "ai:smoke:gemini": "tsx scripts/ai-smoke-gemini.ts",
+    "ai:smoke:api": "tsx scripts/ai-smoke-analysis-api.ts"
   },
   "dependencies": {
     "@google/genai": "^3.3.0",

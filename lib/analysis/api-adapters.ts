@@ -61,6 +61,13 @@ export class InvalidBackendAnalysisResponseError extends Error {
   }
 }
 
+export class InvalidAnalysisResponsePayloadError extends Error {
+  constructor() {
+    super("The analysis response payload is invalid.");
+    this.name = "InvalidAnalysisResponsePayloadError";
+  }
+}
+
 const DEMO_BRAND_BY_GUIDELINE_COLLECTION: Readonly<Record<string, string>> = {
   "Teralune Brand Identity & AI Guidelines v1.0": "demo-brand-teralune",
 };
@@ -212,6 +219,7 @@ export function adaptBackendResponse(
   if (!parsed.success) {
     throw new InvalidBackendAnalysisResponseError();
   }
+
   const findings = parsed.data.findings.map((finding) =>
     mapFinding(finding, content),
   );
@@ -232,4 +240,37 @@ export function adaptBackendResponse(
     summary,
     findings,
   };
+}
+
+const FrontendAnalysisResponseSchema = z.object({
+  complianceScore: z.number().finite(),
+  providerUsed: z.string().trim().min(1),
+  summary: z.string(),
+  findings: z.array(
+    z
+      .object({
+        id: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().min(1),
+        severity: z.enum(["high", "medium", "low"]),
+        evidenceStatus: z.enum(["supported", "conflicting", "unverified"]),
+        sourceReference: z.string(),
+        affectedContent: z.string(),
+      })
+      .passthrough(),
+  ),
+  submissionId: z.string().min(1),
+  analysisRunId: z.string().min(1),
+  analysisStatus: z.enum(["COMPLETED", "PARTIAL", "FAILED"]),
+  fallbackUsed: z.boolean(),
+});
+
+export function parseAnalysisResponsePayload(
+  input: unknown,
+): AnalysisResponsePayload {
+  const parsed = FrontendAnalysisResponseSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvalidAnalysisResponsePayloadError();
+  }
+  return parsed.data as unknown as AnalysisResponsePayload;
 }

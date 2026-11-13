@@ -6,8 +6,10 @@ import {
   adaptBackendResponse,
   adaptFrontendRequest,
   handleAnalysisRequest,
+  InvalidAnalysisResponsePayloadError,
   InvalidBackendAnalysisResponseError,
   InvalidFrontendAnalysisRequestError,
+  parseAnalysisResponsePayload,
   UnsupportedDemoBrandError,
 } from "../lib/analysis";
 import type { AnalysisResponse } from "../lib/contracts";
@@ -201,4 +203,27 @@ test("rejects invalid backend responses without exposing provider details", () =
       ),
     InvalidBackendAnalysisResponseError,
   );
+});
+
+test("validates the frontend response payload before review creation", () => {
+  const payload = adaptBackendResponse(backendResponse, frontendRequest.textContent);
+  assert.equal(parseAnalysisResponsePayload(payload).providerUsed, "fake-ai");
+  assert.throws(
+    () => parseAnalysisResponsePayload({ ...payload, fallbackUsed: "false" }),
+    InvalidAnalysisResponsePayloadError,
+  );
+});
+
+test("maps unexpected orchestration exceptions to a safe server error", async () => {
+  const result = await handleAnalysisRequest(frontendRequest, {
+    orchestrator: {
+      analyze: async () => {
+        throw new Error("provider secret and stack details");
+      },
+    },
+  });
+  assert.equal(result.status, 500);
+  assert.deepEqual(result.body, {
+    error: "Unable to complete brand governance analysis.",
+  });
 });

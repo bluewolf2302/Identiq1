@@ -348,6 +348,13 @@ function ReviewStudioInner() {
                       Submitted by {activeReview.submittedBy} · {activeReview.submittedAt} ·
                       Compliance Score: {activeReview.complianceScore}%
                     </p>
+                    {activeReview.providerUsed && (
+                      <p className="text-[11px] text-[#6B6560] mt-1">
+                        Analyzed by {activeReview.providerUsed}
+                        {activeReview.fallbackUsed ? " (fallback used)" : ""}
+                        {activeReview.analysisRunId ? ` · Run ${activeReview.analysisRunId}` : ""}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
