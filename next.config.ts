@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   ],
   cacheComponents: true,
   partialPrefetching: true,
+  serverExternalPackages: ["sharp", "tesseract.js", "pdfjs-dist", "@napi-rs/canvas"],
   turbopack: {
     rules: {
       "*.css": {

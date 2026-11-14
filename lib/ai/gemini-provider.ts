@@ -92,7 +92,7 @@ export class GeminiProvider implements AiProvider {
     this.config = {
       ...config,
       model: config.model.trim(),
-      timeoutMs: config.timeoutMs ?? 55_000,
+      timeoutMs: config.timeoutMs ?? 18_000,
       fetcher: config.fetcher ?? fetch,
     };
   }

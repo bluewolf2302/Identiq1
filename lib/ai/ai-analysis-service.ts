@@ -133,58 +133,31 @@ export function createAiAnalysisServiceFromEnvironment(
     loadLocalEnvironment();
   }
 
-  const env = environment ?? process.env;
+  const openRouterModel =
+    process.env.OPENROUTER_MODEL?.trim() ||
+    process.env.OPENROUTER_TEXT_MODEL?.trim() ||
+    "google/gemini-3.6-flash";
 
-  const geminiConfiguration = getProviderConfiguration(
-    env.GEMINI_API_KEY,
-    env.GEMINI_MODEL,
-  );
-  const openRouterConfiguration = getProviderConfiguration(
-    env.OPENROUTER_API_KEY,
-    env.OPENROUTER_MODEL,
-  );
-  const configured = {
-    gemini: geminiConfiguration
-      ? new GeminiProvider({
-          ...geminiConfiguration,
-          ...options,
-        })
-      : undefined,
-    openrouter: openRouterConfiguration
-      ? new OpenRouterProvider({
-          ...openRouterConfiguration,
-          ...options,
-        })
-      : undefined,
-  };
-  const primaryName =
-    env.AI_PRIMARY_PROVIDER?.trim().toLowerCase() || "gemini";
-  if (primaryName !== "gemini" && primaryName !== "openrouter") {
-    throw new InvalidAiProviderConfigurationError(primaryName);
-  }
-  const fallbackName =
-    primaryName === "gemini" ? "openrouter" : "gemini";
-  const selectedPrimary = configured[primaryName];
-  const configuredFallback = configured[fallbackName];
+  const geminiModel =
+    process.env.GEMINI_MODEL?.trim() ||
+    process.env.GEMINI_TEXT_MODEL?.trim() ||
+    "gemini-3.6-flash";
 
-  return new AiAnalysisService({
-    primary: selectedPrimary ?? configuredFallback,
-    fallback: selectedPrimary ? configuredFallback : undefined,
-  });
-}
+  const primary = process.env.OPENROUTER_API_KEY?.trim()
+    ? new OpenRouterProvider({
+        apiKey: process.env.OPENROUTER_API_KEY.trim(),
+        model: openRouterModel,
+      })
+    : undefined;
 
-function getProviderConfiguration(
-  apiKey: string | undefined,
-  model: string | undefined,
-): Pick<ProviderConfiguration, "apiKey" | "model"> | undefined {
-  if (!apiKey?.trim() || !model?.trim()) {
-    return undefined;
-  }
+  const fallback = process.env.GEMINI_API_KEY?.trim()
+    ? new GeminiProvider({
+        apiKey: process.env.GEMINI_API_KEY.trim(),
+        model: geminiModel,
+      })
+    : undefined;
 
-  return {
-    apiKey: apiKey.trim(),
-    model: model.trim(),
-  };
+  return new AiAnalysisService({ primary, fallback });
 }
 
 function isDuplicateOfDeterministic(

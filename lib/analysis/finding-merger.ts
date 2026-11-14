@@ -52,6 +52,7 @@ function isDuplicate(
 export function mergeFindings(
   deterministicFindings: ReviewFinding[],
   semanticFindings: ReviewFinding[],
+  visualFindings: ReviewFinding[] = [],
 ): ReviewFinding[] {
   const merged = [...deterministicFindings];
   for (const semanticFinding of semanticFindings) {
@@ -61,6 +62,13 @@ export function mergeFindings(
       )
     ) {
       merged.push(semanticFinding);
+    }
+  }
+  for (const visualFinding of visualFindings) {
+    if (
+      !merged.some((existing) => isDuplicate(existing, visualFinding))
+    ) {
+      merged.push(visualFinding);
     }
   }
   return merged;
