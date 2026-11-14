@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
+import { GuidelinePdfReviewPanel } from "@/components/GuidelinePdfReviewPanel";
 import { KnowledgeEntry, KnowledgeSection } from "@/lib/types";
 
 const SECTIONS: Array<{
@@ -81,6 +82,7 @@ export default function KnowledgeHubPage() {
   const { knowledge, upsertKnowledgeEntry, deleteKnowledgeEntry, toggleKnowledgeStatus, settings } =
     useIdentiq();
 
+  const [activeView, setActiveView] = useState<"knowledge" | "guidelines">("knowledge");
   const [activeSection, setActiveSection] = useState<KnowledgeSection>("guidelines");
   const [statusFilter, setStatusFilter] = useState<"All" | "Approved" | "Pending Review">("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -178,17 +180,54 @@ export default function KnowledgeHubPage() {
             Brand Knowledge Hub
           </h1>
         </div>
+        {activeView === "knowledge" && (
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2A2A2A] text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Add Knowledge Entry
+          </button>
+        )}
+      </div>
+
+      <div
+        aria-label="Knowledge Hub sections"
+        className="inline-flex items-center gap-1.5 rounded-2xl border border-[#E7E1DA] bg-[#F3EDE8] p-1.5"
+      >
         <button
           type="button"
-          onClick={openCreateModal}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2A2A2A] text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+          aria-pressed={activeView === "knowledge"}
+          onClick={() => setActiveView("knowledge")}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors ${
+            activeView === "knowledge"
+              ? "bg-white text-[#141414] shadow-xs"
+              : "text-[#524E4A] hover:bg-white/60"
+          }`}
         >
-          <Plus className="w-4 h-4" />
-          Add Knowledge Entry
+          <BookOpen className="h-4 w-4" />
+          Knowledge entries
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeView === "guidelines"}
+          onClick={() => setActiveView("guidelines")}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors ${
+            activeView === "guidelines"
+              ? "bg-white text-[#141414] shadow-xs"
+              : "text-[#524E4A] hover:bg-white/60"
+          }`}
+        >
+          <FileCheck2 className="h-4 w-4" />
+          Guideline PDFs
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {activeView === "guidelines" ? (
+        <GuidelinePdfReviewPanel />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Section Navigation */}
         <div className="lg:col-span-4 xl:col-span-3 bg-[#F3EDE8] border border-[#E7E1DA] rounded-[24px] p-3 space-y-1">
           {SECTIONS.map((sec) => {
@@ -396,10 +435,11 @@ export default function KnowledgeHubPage() {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Add / Edit Modal */}
-      {modalOpen && (
+      {activeView === "knowledge" && modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white border border-[#E7E1DA] rounded-[26px] max-w-lg w-full p-6 shadow-xl">
             <div className="flex items-center justify-between mb-4">
