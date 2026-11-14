@@ -23,24 +23,30 @@ return only evidence-validated `ReviewFinding` objects.
 Set server-only variables using `.env` or the deployment environment:
 
 ```text
+AI_PRIMARY_PROVIDER=gemini
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
 GEMINI_API_KEY=
-GEMINI_MODEL=
+GEMINI_MODEL=gemini-3.8-flash
+OPENROUTER_MODEL=google/gemini-3.8-flash
 ```
 
 `.env.example` contains placeholders only. Do not use `NEXT_PUBLIC_` prefixes.
-Model identifiers are required; deployments must set explicit identifiers
-currently supported by their provider account. No model default is embedded in
-the application.
+`AI_PRIMARY_PROVIDER` accepts `gemini` or `openrouter` and defaults to `gemini`.
+Model identifiers are required and use the format supported by the selected
+provider account: Gemini model names for Gemini and OpenRouter model IDs such as
+`google/gemini-3.8-flash` for OpenRouter. The example values are suggestions;
+confirm that the selected model is available to the account. No model fallback
+is embedded in the application.
 
 ## Fallback behavior
 
-Construct providers only when credentials are configured. The service calls
-OpenRouter once, then Gemini once if a fallback was injected and the primary
-call fails. It never retries indefinitely and never turns provider failure into
-an empty successful result. If all providers fail, it throws
-`AiAnalysisUnavailableError` with safe provider-level messages.
+Construct providers only when both credentials and model are configured. The
+selected provider is primary when configured; if only the other provider is
+configured, it becomes primary so a successful single-provider call reports
+`fallbackUsed: false`. When both are configured, the non-selected provider is
+used once as fallback if the primary call fails. It never retries indefinitely
+and never turns provider failure into an empty successful result. If all
+providers fail, it throws `AiAnalysisUnavailableError` with safe messages.
 
 ## Supported AI checks
 
@@ -72,11 +78,22 @@ Tests cover successful provider parsing, fallback, unavailable providers,
 timeouts, malformed responses, invalid/fabricated evidence, semantic findings,
 clean results, deduplication, and prompt-injection text.
 
+Run the ordinary tests with `npm test`. The live Gemini smoke test is separate:
+
+```text
+npm run ai:smoke:gemini
+```
+
+It loads the local private environment, makes one real structured request, and
+validates an empty `findings` array. It requires an active `GEMINI_API_KEY` and
+`GEMINI_MODEL`, may consume provider quota, and is never run by `npm test`.
+
 The provider schema intentionally uses a small internal candidate shape because
 the public Phase 1 contracts do not include a first-class structured guideline
 or claim model. Semantic quality remains model-dependent, and no API route,
-frontend integration, persistence, or real paid provider call is included in
-this phase.
+frontend integration, or persistence is included in this phase. The smoke test
+is an explicit live check; its result depends on account access, model
+availability, network connectivity, and quota.
 
 Provider API references:
 

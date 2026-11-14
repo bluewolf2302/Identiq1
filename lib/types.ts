@@ -140,7 +140,10 @@ export interface ActivityEvent {
     | "approved"
     | "changes_requested"
     | "knowledge_updated"
-    | "asset_uploaded";
+    | "asset_uploaded"
+    | "correction_applied"
+    | "comment_added"
+    | "manual_finding_added";
 }
 
 export interface AnalysisRequestPayload {

@@ -11,6 +11,7 @@ import {
   Eye,
   FileWarning,
   HelpCircle,
+  History,
   Layers,
   MessageSquare,
   Plus,
@@ -24,6 +25,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { ReviewAuditDrawer } from "@/components/audit/ReviewAuditDrawer";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { EVIDENCE_STYLE, REVIEW_STATUS_META, SEVERITY_LABEL } from "@/components/ThemeTokens";
 import {
@@ -94,6 +96,7 @@ function ReviewStudioInner() {
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [commentText, setCommentText] = useState("");
   const [compactDensity, setCompactDensity] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   // Manual finding modal
   const [manualOpen, setManualOpen] = useState(false);
@@ -384,6 +387,15 @@ function ReviewStudioInner() {
 
                 {/* Search + 3 KPI Counter Tiles */}
                 <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setAuditOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] transition-colors shadow-2xs whitespace-nowrap"
+                  >
+                    <History className="w-3.5 h-3.5 text-[#524E4A]" />
+                    Audit History
+                  </button>
+
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 text-[#6B6560] absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
@@ -1088,6 +1100,14 @@ function ReviewStudioInner() {
         <span className="w-px h-5 bg-white/20 mx-1" />
         <button
           type="button"
+          title="Review Audit History"
+          onClick={() => setAuditOpen(true)}
+          className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
+        >
+          <History className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           title="Add manual finding"
           aria-label="Add manual finding"
           onClick={() => setManualOpen(true)}
@@ -1212,6 +1232,12 @@ function ReviewStudioInner() {
           </div>
         </div>
       )}
+      {/* Review Audit History Drawer */}
+      <ReviewAuditDrawer
+        review={activeReview}
+        isOpen={auditOpen}
+        onClose={() => setAuditOpen(false)}
+      />
     </div>
   );
 }

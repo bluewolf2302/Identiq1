@@ -4,11 +4,15 @@ import { BrandContextSchema } from "../contracts";
 import {
   AiProviderError,
   AiAnalysisUnavailableError,
+  InvalidAiProviderConfigurationError,
   MissingAiProviderCredentialsError,
+  MissingAiProviderConfigurationError,
   type AiAnalysisInput,
   type AiAnalysisResult,
   type AiAnalysisServiceOptions,
   type AiProvider,
+  type ProviderConfiguration,
+  type ProviderFetch,
 } from "./types";
 import { GeminiProvider } from "./gemini-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
@@ -47,10 +51,13 @@ export class AiAnalysisService {
         return {
           findings,
           providerUsed: provider.name,
-          fallbackUsed: index > 0,
+          fallbackUsed: index > 0 && Boolean(this.primary),
         };
       } catch (error) {
-        if (error instanceof MissingAiProviderCredentialsError) {
+        if (
+          error instanceof MissingAiProviderCredentialsError ||
+          error instanceof MissingAiProviderConfigurationError
+        ) {
           failures.push(
             new AiProviderError(provider.name, error.message, { cause: error }),
           );
@@ -58,15 +65,12 @@ export class AiAnalysisService {
           failures.push(
             new AiProviderError(
               provider.name,
-              error instanceof Error
-                ? error.message
-                : "Provider returned an invalid response.",
+              `${provider.name} provider request failed.`,
               { cause: error },
             ),
           );
         }
       }
-
     }
 
     throw new AiAnalysisUnavailableError(failures);
@@ -99,18 +103,34 @@ function parseDotEnvFile(filePath: string): Record<string, string> {
   }
 }
 
-export function createAiAnalysisServiceFromEnvironment(): AiAnalysisService {
-  if (typeof process !== "undefined") {
-    const cwd = process.cwd();
-    const envOverrides = {
-      ...parseDotEnvFile(path.join(cwd, ".env")),
-      ...parseDotEnvFile(path.join(cwd, ".env.local")),
-    };
-    for (const [key, value] of Object.entries(envOverrides)) {
-      if (value !== "") {
-        process.env[key] = value;
-      }
+function loadLocalEnvironment(): void {
+  if (typeof process === "undefined") return;
+
+  const cwd = process.cwd();
+  const envOverrides = {
+    ...parseDotEnvFile(path.join(cwd, ".env")),
+    ...parseDotEnvFile(path.join(cwd, ".env.local")),
+  };
+
+  for (const [key, value] of Object.entries(envOverrides)) {
+    // Preserve environment variables already supplied by the runtime.
+    if (
+      (process.env[key] === undefined || process.env[key] === "") &&
+      value !== ""
+    ) {
+      process.env[key] = value;
     }
+  }
+}
+
+export function createAiAnalysisServiceFromEnvironment(
+  environment?: Readonly<Record<string, string | undefined>>,
+  options: { fetcher?: ProviderFetch; timeoutMs?: number } = {},
+): AiAnalysisService {
+  // Explicitly injected environments are used by tests.
+  // Otherwise, load the local environment for manual smoke testing.
+  if (environment === undefined) {
+    loadLocalEnvironment();
   }
 
   const openRouterModel =

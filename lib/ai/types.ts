@@ -95,3 +95,10 @@ export class MissingAiProviderConfigurationError extends Error {
     this.setting = setting;
   }
 }
+
+export class InvalidAiProviderConfigurationError extends Error {
+  constructor(value: string) {
+    super(`AI_PRIMARY_PROVIDER must be "gemini" or "openrouter"; received "${value}".`);
+    this.name = "InvalidAiProviderConfigurationError";
+  }
+}
