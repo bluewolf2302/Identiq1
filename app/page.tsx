@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -34,6 +34,7 @@ import {
   formatReviewDate,
   getUniqueBrands,
 } from "@/lib/dashboard-metrics";
+import { formatActivityTimestamp } from "@/lib/activity-timeline";
 import { KpiCardGrid } from "@/components/dashboard/KpiCardGrid";
 import { DynamicComplianceChart } from "@/components/dashboard/DynamicComplianceChart";
 
@@ -64,6 +65,13 @@ export default function DashboardPage() {
   const [selectedBrand, setSelectedBrand] = useState<string>("All");
   const [selectedDateRange, setSelectedDateRange] = useState<DateRangeOption>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [mountedNow, setMountedNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    // Hydration-safe client reference timestamp initialization
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMountedNow(new Date());
+  }, []);
 
   // Unique brand collections dynamically gathered from available data
   const availableBrands = useMemo(
@@ -84,8 +92,8 @@ export default function DashboardPage() {
 
   // Filtered reviews list
   const filteredReviews = useMemo(
-    () => filterReviews(reviews, activeFilters),
-    [reviews, activeFilters],
+    () => filterReviews(reviews, activeFilters, mountedNow),
+    [reviews, activeFilters, mountedNow],
   );
 
   // Dynamically computed KPI statistics
@@ -105,6 +113,7 @@ export default function DashboardPage() {
     setSelectedBrand("All");
     setSelectedDateRange("all");
     setSearchQuery("");
+    setMountedNow(new Date());
   };
 
   const openInStudio = (reviewId: string) => {
@@ -214,7 +223,10 @@ export default function DashboardPage() {
                   <select
                     aria-label="Filter by date range"
                     value={selectedDateRange}
-                    onChange={(e) => setSelectedDateRange(e.target.value as DateRangeOption)}
+                    onChange={(e) => {
+                      setSelectedDateRange(e.target.value as DateRangeOption);
+                      setMountedNow(new Date());
+                    }}
                     className="w-full bg-transparent text-[#141414] font-medium focus:outline-none"
                   >
                     {DATE_RANGE_OPTIONS.map((opt) => (
@@ -462,7 +474,7 @@ export default function DashboardPage() {
                         {act.actor}
                       </span>
                       <span className="text-[11px] text-[#524E4A] tabular-nums">
-                        {act.timestamp}
+                        {formatActivityTimestamp(act.timestamp, mountedNow)}
                       </span>
                     </div>
                     <p className="text-xs text-[#2B2927] leading-snug">

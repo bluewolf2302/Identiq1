@@ -133,7 +133,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     const newEvent: ActivityEvent = {
       ...event,
       id: `act-${Date.now()}`,
-      timestamp: "Just now",
+      timestamp: new Date().toISOString(),
     };
     setActivities((prev) => [newEvent, ...prev]);
   };

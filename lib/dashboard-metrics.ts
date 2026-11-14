@@ -124,15 +124,17 @@ export function getUniqueBrands(
 export function filterReviews(
   reviews: ReviewSubmission[],
   filters: DashboardFilters,
-  referenceNow: Date = new Date(),
+  referenceNow?: Date | null,
 ): ReviewSubmission[] {
   const query = filters.searchQuery.trim().toLowerCase();
   let cutoffTime: number | null = null;
 
-  if (filters.dateRange === "7d") {
-    cutoffTime = referenceNow.getTime() - 7 * 24 * 60 * 60 * 1000;
-  } else if (filters.dateRange === "30d") {
-    cutoffTime = referenceNow.getTime() - 30 * 24 * 60 * 60 * 1000;
+  if (referenceNow) {
+    if (filters.dateRange === "7d") {
+      cutoffTime = referenceNow.getTime() - 7 * 24 * 60 * 60 * 1000;
+    } else if (filters.dateRange === "30d") {
+      cutoffTime = referenceNow.getTime() - 30 * 24 * 60 * 60 * 1000;
+    }
   }
 
   return reviews.filter((r) => {
