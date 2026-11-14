@@ -4,11 +4,15 @@ import { BrandContextSchema } from "../contracts";
 import {
   AiProviderError,
   AiAnalysisUnavailableError,
+  InvalidAiProviderConfigurationError,
   MissingAiProviderCredentialsError,
+  MissingAiProviderConfigurationError,
   type AiAnalysisInput,
   type AiAnalysisResult,
   type AiAnalysisServiceOptions,
   type AiProvider,
+  type ProviderConfiguration,
+  type ProviderFetch,
 } from "./types";
 import { GeminiProvider } from "./gemini-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
@@ -47,10 +51,13 @@ export class AiAnalysisService {
         return {
           findings,
           providerUsed: provider.name,
-          fallbackUsed: index > 0,
+          fallbackUsed: index > 0 && Boolean(this.primary),
         };
       } catch (error) {
-        if (error instanceof MissingAiProviderCredentialsError) {
+        if (
+          error instanceof MissingAiProviderCredentialsError ||
+          error instanceof MissingAiProviderConfigurationError
+        ) {
           failures.push(
             new AiProviderError(provider.name, error.message, { cause: error }),
           );
@@ -58,15 +65,12 @@ export class AiAnalysisService {
           failures.push(
             new AiProviderError(
               provider.name,
-              error instanceof Error
-                ? error.message
-                : "Provider returned an invalid response.",
+              `${provider.name} provider request failed.`,
               { cause: error },
             ),
           );
         }
       }
-
     }
 
     throw new AiAnalysisUnavailableError(failures);
@@ -99,35 +103,88 @@ function parseDotEnvFile(filePath: string): Record<string, string> {
   }
 }
 
-export function createAiAnalysisServiceFromEnvironment(): AiAnalysisService {
-  if (typeof process !== "undefined") {
-    const cwd = process.cwd();
-    const envOverrides = {
-      ...parseDotEnvFile(path.join(cwd, ".env")),
-      ...parseDotEnvFile(path.join(cwd, ".env.local")),
-    };
-    for (const [key, value] of Object.entries(envOverrides)) {
-      if (value !== "") {
-        process.env[key] = value;
-      }
+function loadLocalEnvironment(): void {
+  if (typeof process === "undefined") return;
+
+  const cwd = process.cwd();
+  const envOverrides = {
+    ...parseDotEnvFile(path.join(cwd, ".env")),
+    ...parseDotEnvFile(path.join(cwd, ".env.local")),
+  };
+
+  for (const [key, value] of Object.entries(envOverrides)) {
+    // Preserve environment variables already supplied by the runtime.
+    if (
+      (process.env[key] === undefined || process.env[key] === "") &&
+      value !== ""
+    ) {
+      process.env[key] = value;
     }
   }
+}
 
-  const primary =
-    process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_MODEL
-      ? new OpenRouterProvider({
-          apiKey: process.env.OPENROUTER_API_KEY,
-          model: process.env.OPENROUTER_MODEL,
-        })
-      : undefined;
-  const fallback =
-    process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL
+export function createAiAnalysisServiceFromEnvironment(
+  environment?: Readonly<Record<string, string | undefined>>,
+  options: { fetcher?: ProviderFetch; timeoutMs?: number } = {},
+): AiAnalysisService {
+  // Explicitly injected environments are used by tests.
+  // Otherwise, load the local environment for manual smoke testing.
+  if (environment === undefined) {
+    loadLocalEnvironment();
+  }
+
+  const env = environment ?? process.env;
+
+  const geminiConfiguration = getProviderConfiguration(
+    env.GEMINI_API_KEY,
+    env.GEMINI_MODEL,
+  );
+  const openRouterConfiguration = getProviderConfiguration(
+    env.OPENROUTER_API_KEY,
+    env.OPENROUTER_MODEL,
+  );
+  const configured = {
+    gemini: geminiConfiguration
       ? new GeminiProvider({
-          apiKey: process.env.GEMINI_API_KEY,
-          model: process.env.GEMINI_MODEL,
+          ...geminiConfiguration,
+          ...options,
         })
-      : undefined;
-  return new AiAnalysisService({ primary, fallback });
+      : undefined,
+    openrouter: openRouterConfiguration
+      ? new OpenRouterProvider({
+          ...openRouterConfiguration,
+          ...options,
+        })
+      : undefined,
+  };
+  const primaryName =
+    env.AI_PRIMARY_PROVIDER?.trim().toLowerCase() || "gemini";
+  if (primaryName !== "gemini" && primaryName !== "openrouter") {
+    throw new InvalidAiProviderConfigurationError(primaryName);
+  }
+  const fallbackName =
+    primaryName === "gemini" ? "openrouter" : "gemini";
+  const selectedPrimary = configured[primaryName];
+  const configuredFallback = configured[fallbackName];
+
+  return new AiAnalysisService({
+    primary: selectedPrimary ?? configuredFallback,
+    fallback: selectedPrimary ? configuredFallback : undefined,
+  });
+}
+
+function getProviderConfiguration(
+  apiKey: string | undefined,
+  model: string | undefined,
+): Pick<ProviderConfiguration, "apiKey" | "model"> | undefined {
+  if (!apiKey?.trim() || !model?.trim()) {
+    return undefined;
+  }
+
+  return {
+    apiKey: apiKey.trim(),
+    model: model.trim(),
+  };
 }
 
 function isDuplicateOfDeterministic(
