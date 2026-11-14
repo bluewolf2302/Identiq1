@@ -102,6 +102,7 @@ function ReviewStudioInner() {
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [commentText, setCommentText] = useState("");
   const [decisionReason, setDecisionReason] = useState("");
+  const [decisionError, setDecisionError] = useState("");
   const [compactDensity, setCompactDensity] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
 
@@ -145,6 +146,13 @@ function ReviewStudioInner() {
       null
     );
   }, [activeReview, selectedFindingId, filteredFindings]);
+
+  useEffect(() => {
+    // Reset unsaved decision input when the selected review or finding changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDecisionReason("");
+    setDecisionError("");
+  }, [activeReviewId, selectedFinding?.id]);
 
   const pages = activeReview?.visualSummary?.pages ?? [];
   const totalPages = pages.length || 1;
@@ -1082,14 +1090,23 @@ function ReviewStudioInner() {
                   <input
                     aria-label="Finding decision reason"
                     value={decisionReason}
-                    onChange={(e) => setDecisionReason(e.target.value)}
-                    placeholder="Optional decision reason"
+                    onChange={(e) => {
+                      setDecisionReason(e.target.value);
+                      setDecisionError("");
+                    }}
+                    placeholder="Decision reason (required for rejection)"
                     className="w-full px-3 py-2 rounded-xl border border-[#CBE2EF] bg-white text-xs text-[#141414] focus:outline-none focus:border-[#141414]"
                   />
+                  {decisionError && (
+                    <p role="alert" className="text-[11px] font-semibold text-[#842029]">
+                      {decisionError}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => {
+                        setDecisionError("");
                         updateFindingDecision(activeReview.id, selectedFinding.id, "APPROVE", decisionReason);
                         setDecisionReason("");
                       }}
@@ -1100,7 +1117,12 @@ function ReviewStudioInner() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (!decisionReason.trim()) {
+                          setDecisionError("A reason is required to reject a finding.");
+                          return;
+                        }
                         updateFindingDecision(activeReview.id, selectedFinding.id, "REJECT", decisionReason);
+                        setDecisionError("");
                         setDecisionReason("");
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F6D5DA] text-[#7F1D1D] text-xs font-semibold"
@@ -1110,6 +1132,7 @@ function ReviewStudioInner() {
                     <button
                       type="button"
                       onClick={() => {
+                        setDecisionError("");
                         updateFindingDecision(activeReview.id, selectedFinding.id, "REQUEST_CHANGES", decisionReason);
                         setDecisionReason("");
                       }}

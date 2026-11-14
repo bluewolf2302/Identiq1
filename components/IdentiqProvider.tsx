@@ -11,6 +11,10 @@ import {
 } from "@/lib/types";
 import type { ReviewDecision } from "@/lib/contracts/workflow";
 import {
+  buildFindingDecisionPatch,
+  getFindingDecisionValidationError,
+} from "@/lib/review-decisions";
+import {
   INITIAL_ACTIVITY,
   INITIAL_ASSETS,
   INITIAL_KNOWLEDGE,
@@ -253,6 +257,11 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     const targetReview = reviews.find((r) => r.id === reviewId);
     const targetFinding = targetReview?.findings.find((f) => f.id === findingId);
     if (!targetReview || !targetFinding) return;
+    const decisionError = getFindingDecisionValidationError(decision, reason);
+    if (decisionError) {
+      notify(decisionError, "info");
+      return;
+    }
     if (
       targetFinding.reviewDecision === decision &&
       (!reason?.trim() || targetFinding.reviewDecisionReason === reason.trim())
@@ -260,13 +269,12 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const timestamp = new Date().toISOString();
-    const nextDecision = {
-      reviewDecision: decision,
-      ...(reason?.trim() ? { reviewDecisionReason: reason.trim() } : {}),
-      reviewDecisionAt: timestamp,
-      reviewDecisionBy: settings.reviewerName,
-      ...(decision === "REQUEST_CHANGES" ? { requiresHumanReview: true } : {}),
-    };
+    const nextDecision = buildFindingDecisionPatch(
+      decision,
+      reason,
+      settings.reviewerName,
+      timestamp,
+    );
     setReviews((prev) =>
       prev.map((review) =>
         review.id !== reviewId
