@@ -14,6 +14,7 @@ import {
   type AiProvider,
 } from "../lib/ai";
 import { BrandContextSchema, type BrandContext } from "../lib/contracts";
+import { parseAndValidateCandidates } from "../lib/ai/response-validator";
 
 const context: BrandContext = BrandContextSchema.parse({
   brandProfile: "A clear, evidence-led brand.",
@@ -64,6 +65,67 @@ const successfulProviderFetch = async (url: string): Promise<Response> =>
         JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) } }] }),
         { status: 200 },
       );
+
+test("validates source metadata, excerpts, and exact finding locations", () => {
+      const findings = parseAndValidateCandidates(candidate, context, "Stop now");
+      assert.deepEqual(findings[0]?.location, { startOffset: 0, endOffset: 4 });
+
+      assert.throws(
+        () =>
+          parseAndValidateCandidates(
+            {
+              findings: [
+                {
+                  ...candidate.findings[0],
+                  evidenceReferences: [
+                    {
+                      ...candidate.findings[0].evidenceReferences[0],
+                      sourceTitle: "Fabricated handbook",
+                    },
+                  ],
+                },
+              ],
+            },
+            context,
+            "Stop now",
+          ),
+        AiEvidenceValidationError,
+      );
+      assert.throws(
+        () =>
+          parseAndValidateCandidates(
+            {
+              findings: [
+                {
+                  ...candidate.findings[0],
+                  evidenceReferences: [
+                    {
+                      ...candidate.findings[0].evidenceReferences[0],
+                      excerpt: "An unsupported quotation",
+                    },
+                  ],
+                },
+              ],
+            },
+            context,
+            "Stop now",
+          ),
+        AiEvidenceValidationError,
+      );
+      const invalidLocation = parseAndValidateCandidates(
+        {
+          findings: [
+            {
+              ...candidate.findings[0],
+              location: { startOffset: 1, endOffset: 5, quote: "Stop" },
+            },
+          ],
+        },
+        context,
+        "Stop now",
+      );
+      assert.equal(invalidLocation[0]?.location, undefined);
+});
 
 function mockProvider(
   name: string,

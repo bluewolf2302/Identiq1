@@ -148,7 +148,17 @@ export function parseAndValidateCandidates(
   }
 
   const sourceIds = new Set(parsedContext.data.sourceIds);
-  const versionIds = new Set(parsedContext.data.versionId.split(",").map((id) => id.trim()));
+  const sourceMetadata = parseSourceMetadata(parsedContext.data);
+  const approvedContextValues = [
+    parsedContext.data.brandProfile,
+    ...parsedContext.data.approvedGuidelines,
+    ...parsedContext.data.approvedProductFacts,
+    ...parsedContext.data.approvedPromotionalClaims,
+    ...parsedContext.data.preferredTerminology,
+    ...parsedContext.data.prohibitedTerminology,
+    ...parsedContext.data.approvedColours,
+    ...parsedContext.data.approvedVisualAssetReferences,
+  ];
   return parsed.data.findings.map((candidate, index) => {
     for (const evidence of candidate.evidenceReferences) {
       if (!sourceIds.has(evidence.sourceId)) {
@@ -156,9 +166,25 @@ export function parseAndValidateCandidates(
           `AI finding ${index} referenced an unknown source.`,
         );
       }
-      if (!versionIds.has(evidence.versionId)) {
+      const metadata = sourceMetadata.get(evidence.sourceId);
+      if (metadata && metadata.versionId !== evidence.versionId) {
         throw new AiEvidenceValidationError(
           `AI finding ${index} referenced an invalid source version.`,
+        );
+      }
+      if (metadata && metadata.sourceTitle !== evidence.sourceTitle) {
+        throw new AiEvidenceValidationError(
+          `AI finding ${index} referenced mismatched source metadata.`,
+        );
+      }
+      if (
+        evidence.excerpt &&
+        !approvedContextValues.some((value) =>
+          normalizeEvidenceText(value).includes(normalizeEvidenceText(evidence.excerpt!)),
+        )
+      ) {
+        throw new AiEvidenceValidationError(
+          `AI finding ${index} supplied an unsupported evidence excerpt.`,
         );
       }
     }
@@ -189,19 +215,20 @@ function validateLocation(
     location.startOffset !== undefined &&
     location.endOffset !== undefined &&
     location.endOffset <= content.length &&
-    location.startOffset <= location.endOffset
+    location.startOffset <= location.endOffset &&
+    (!location.quote ||
+      content.slice(location.startOffset, location.endOffset) === location.quote)
   ) {
-    if (
-      !location.quote ||
-      content.slice(location.startOffset, location.endOffset) === location.quote
-    ) {
-      return {
-        startOffset: location.startOffset,
-        endOffset: location.endOffset,
-      };
-    }
+    return {
+      startOffset: location.startOffset,
+      endOffset: location.endOffset,
+    };
   }
-  if (location.quote) {
+  if (
+    location.quote &&
+    location.startOffset === undefined &&
+    location.endOffset === undefined
+  ) {
     const idx = content.indexOf(location.quote);
     if (idx !== -1) {
       return {
@@ -211,4 +238,24 @@ function validateLocation(
     }
   }
   return undefined;
+}
+
+function normalizeEvidenceText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function parseSourceMetadata(
+  context: BrandContext,
+): Map<string, { sourceTitle: string; versionId: string }> {
+  const metadata = new Map<string, { sourceTitle: string; versionId: string }>();
+  for (const label of context.sourceVersionInformation.split(/\s+\|\s+/)) {
+    const match = label.match(/^(.+?)\s+\(([^;]+);\s*([^;)]+)/);
+    if (match) {
+      metadata.set(match[2].trim(), {
+        sourceTitle: match[1].trim(),
+        versionId: match[3].trim(),
+      });
+    }
+  }
+  return metadata;
 }

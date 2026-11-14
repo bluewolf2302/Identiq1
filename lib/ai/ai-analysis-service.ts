@@ -18,6 +18,7 @@ import { GeminiProvider } from "./gemini-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
 import { buildAiAnalysisRequest } from "./prompt-builder";
 import { parseAndValidateCandidates } from "./response-validator";
+import { areDuplicateFindings } from "../analysis/finding-merger";
 
 export class AiAnalysisService {
   private readonly primary?: AiProvider;
@@ -47,7 +48,12 @@ export class AiAnalysisService {
       try {
         const raw = await provider.analyze(request);
         const findings = parseAndValidateCandidates(raw, context.data, input.content)
-          .filter((finding) => !isDuplicateOfDeterministic(finding, input.deterministicFindings));
+          .filter(
+            (finding) =>
+              !input.deterministicFindings?.some((existing) =>
+                areDuplicateFindings(existing, finding),
+              ),
+          );
         return {
           findings,
           providerUsed: provider.name,
@@ -132,7 +138,6 @@ export function createAiAnalysisServiceFromEnvironment(
   if (environment === undefined) {
     loadLocalEnvironment();
   }
-
   const env = environment ?? process.env;
 
   const geminiConfiguration = getProviderConfiguration(
@@ -185,17 +190,4 @@ function getProviderConfiguration(
     apiKey: apiKey.trim(),
     model: model.trim(),
   };
-}
-
-function isDuplicateOfDeterministic(
-  finding: import("../contracts").ReviewFinding,
-  deterministicFindings: import("../contracts").ReviewFinding[] = [],
-): boolean {
-  return deterministicFindings.some(
-    (existing) =>
-      existing.category === finding.category &&
-      existing.location?.startOffset === finding.location?.startOffset &&
-      existing.location?.endOffset === finding.location?.endOffset &&
-      existing.issue.toLocaleLowerCase() === finding.issue.toLocaleLowerCase(),
-  );
 }
