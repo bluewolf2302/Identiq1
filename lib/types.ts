@@ -35,6 +35,11 @@ export interface ReviewFinding {
   evidenceReferences?: import("./contracts").EvidenceReference[];
   sourceVersionIds?: string[];
   location?: import("./contracts").FindingLocation;
+  confidence?: number;
+  detector?: import("./contracts").FindingDetector;
+  ruleId?: string | null;
+  requiresHumanReview?: boolean;
+  sourceDomain?: "text" | "visual";
 }
 
 export type ReviewStatus =
@@ -76,6 +81,8 @@ export interface ReviewSubmission {
   providerUsed?: string;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
+  ocrBlocks?: import("./contracts").OcrBlockContract[];
+  visualSummary?: import("./contracts").VisualAnalysisSummary;
 }
 
 export type KnowledgeSection =
@@ -157,4 +164,6 @@ export interface AnalysisResponsePayload {
   analysisRunId?: string;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   fallbackUsed?: boolean;
+  ocrBlocks?: import("./contracts").OcrBlockContract[];
+  visualSummary?: import("./contracts").VisualAnalysisSummary;
 }

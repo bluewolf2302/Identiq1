@@ -35,6 +35,17 @@ export const EvidenceReferenceSchema = z
 
 export type EvidenceReference = z.infer<typeof EvidenceReferenceSchema>;
 
+export const BoundingBoxSchema = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(0).max(1),
+    height: z.number().min(0).max(1),
+  })
+  .strict();
+
+export type BoundingBox = z.infer<typeof BoundingBoxSchema>;
+
 export const FindingLocationSchema = z
   .object({
     field: z.string().min(1).optional(),
@@ -44,6 +55,7 @@ export const FindingLocationSchema = z
     column: z.number().int().positive().optional(),
     pageNumber: z.number().int().positive().optional(),
     assetReference: z.string().min(1).optional(),
+    boundingBox: BoundingBoxSchema.optional(),
   })
   .strict()
   .refine(
@@ -59,9 +71,20 @@ export const FindingLocationSchema = z
 
 export type FindingLocation = z.infer<typeof FindingLocationSchema>;
 
+export const FindingDetectorSchema = z.enum([
+  "ocr",
+  "deterministic",
+  "image_matching",
+  "gemini_vision",
+  "ai_semantic",
+]);
+
+export type FindingDetector = z.infer<typeof FindingDetectorSchema>;
+
 export const ReviewFindingSchema = z
   .object({
     findingId: z.string().min(1),
+    ruleId: z.string().min(1).nullable().optional(),
     category: ComplianceCategorySchema,
     severity: FindingSeveritySchema,
     status: FindingStatusSchema,
@@ -74,6 +97,7 @@ export const ReviewFindingSchema = z
     suggestedCorrection: z.string().min(1).optional(),
     location: FindingLocationSchema.optional(),
     analysisProvider: z.string().min(1),
+    detector: FindingDetectorSchema.optional(),
     confidence: z.number().min(0).max(1).optional(),
   })
   .strict();

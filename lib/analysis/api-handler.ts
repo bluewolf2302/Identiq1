@@ -70,6 +70,18 @@ export async function handleAnalysisRequest(
           body: { error: "AI semantic analysis is currently unavailable." },
         };
       }
+      if (error.stage === "visual-validation") {
+        return {
+          status: 400,
+          body: { error: error.message },
+        };
+      }
+      if (error.stage === "visual") {
+        return {
+          status: 500,
+          body: { error: "Visual creative analysis failed." },
+        };
+      }
       if (error.stage === "deterministic") {
         return {
           status: 500,

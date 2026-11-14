@@ -117,7 +117,33 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         JSON.stringify({ reviews, knowledge, assets, activities, settings })
       );
     } catch {
-      // Ignore quota issues in restricted browsers
+      // If previewDataUrls exceed localStorage quota, store reviews without heavy image data URLs
+      try {
+        const compactReviews = reviews.map((rev) => ({
+          ...rev,
+          visualSummary: rev.visualSummary
+            ? {
+                ...rev.visualSummary,
+                pages: rev.visualSummary.pages.map((p) => ({
+                  ...p,
+                  previewDataUrl: undefined,
+                })),
+              }
+            : undefined,
+        }));
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            reviews: compactReviews,
+            knowledge,
+            assets,
+            activities,
+            settings,
+          })
+        );
+      } catch {
+        // Ignore quota issues in restricted browsers
+      }
     }
   }, [reviews, knowledge, assets, activities, settings, hydrated]);
 
