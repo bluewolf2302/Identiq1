@@ -14,6 +14,7 @@ import {
   BrandNotFoundError,
   type BrandContextWarning,
 } from "../lib/brand-context";
+import { mergeFindings } from "../lib/analysis/finding-merger";
 
 const context: BrandContext = {
   brandProfile: "Example brand",
@@ -159,6 +160,45 @@ test("keeps distinct findings in the same category and removes exact duplicates"
   const duplicateDeterministic = finding("det-1", "Same issue", "deterministic", {
     location: { startOffset: 1, endOffset: 5 },
   });
+
+  test("does not merge empty-evidence or distinct same-location findings", () => {
+    const base = finding("det-1", "Product name is incorrect", "deterministic", {
+      evidenceReferences: [],
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    const different = finding("ai-1", "Pack size is incorrect", "fake-ai", {
+      evidenceReferences: [],
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    assert.deepEqual(mergeFindings([base], [different]).map((item) => item.findingId), [
+      "det-1",
+      "ai-1",
+    ]);
+  });
+
+  test("merges genuinely duplicate wording while preserving distinct source issues", () => {
+    const deterministic = finding("det-1", "Product name is incorrect", "deterministic", {
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    const semanticDuplicate = finding(
+      "ai-1",
+      "Incorrect product name",
+      "fake-ai",
+      { location: { startOffset: 4, endOffset: 10 } },
+    );
+    const semanticDistinct = finding(
+      "ai-2",
+      "Product price conflicts with approved value",
+      "fake-ai",
+      { location: { startOffset: 4, endOffset: 10 } },
+    );
+    assert.deepEqual(
+      mergeFindings([deterministic], [semanticDuplicate, semanticDistinct]).map(
+        (item) => item.findingId,
+      ),
+      ["det-1", "ai-2"],
+    );
+  });
   const duplicateAi = finding("ai-duplicate", " same   issue ", "fake-ai", {
     location: { startOffset: 1, endOffset: 5 },
   });
@@ -186,6 +226,54 @@ test("preserves evidence and version references", async () => {
         versionId: "v1",
       },
     ],
+  });
+
+  test("does not merge findings backed by different source versions", () => {
+    const left = finding("det-1", "Incorrect approved product price", "deterministic", {
+      detectedValue: "$20",
+      evidenceReferences: [
+        {
+          sourceId: "guide-1",
+          sourceType: "brand-guide",
+          sourceTitle: "Guide",
+          versionId: "v1",
+        },
+      ],
+    });
+
+    test("merges a matching visual finding with its text counterpart", () => {
+      const textFinding = finding("det-1", "Incorrect logo usage", "deterministic", {
+        category: "VISUAL_COMPLIANCE",
+        detector: "deterministic",
+        location: { field: "visual:logo", pageNumber: 1 },
+      });
+      const visualFinding = finding("visual-1", "Incorrect logo usage", "visual-gemini", {
+        category: "VISUAL_COMPLIANCE",
+        detector: "gemini_vision",
+        location: { field: "visual:logo", pageNumber: 1 },
+      });
+
+      assert.deepEqual(
+        mergeFindings([textFinding], [], [visualFinding]).map((item) => item.findingId),
+        ["det-1"],
+      );
+    });
+    const right = finding("ai-1", "Incorrect approved product price", "fake-ai", {
+      detectedValue: "$20",
+      evidenceReferences: [
+        {
+          sourceId: "guide-1",
+          sourceType: "brand-guide",
+          sourceTitle: "Guide",
+          versionId: "v2",
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      mergeFindings([left], [right]).map((item) => item.findingId),
+      ["det-1", "ai-1"],
+    );
   });
   const { orchestrator } = createOrchestrator({ semanticFindings: [semantic] });
   const response = await orchestrator.analyze(request);
