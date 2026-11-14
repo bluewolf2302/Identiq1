@@ -21,6 +21,7 @@ import {
   groupActivitiesByDate,
 } from "@/lib/activity-timeline";
 import { ActivityTimelineCard } from "@/components/activity/ActivityTimelineCard";
+import { ReviewAuditDrawer } from "@/components/audit/ReviewAuditDrawer";
 import { ReviewSubmission } from "@/lib/types";
 
 const EVENT_TYPE_OPTIONS: Array<{ label: string; value: "all" | ActivityEventType }> = [
@@ -29,6 +30,9 @@ const EVENT_TYPE_OPTIONS: Array<{ label: string; value: "all" | ActivityEventTyp
   { label: "Approvals", value: "approved" },
   { label: "Changes Requested", value: "changes_requested" },
   { label: "Resolved Findings", value: "resolved" },
+  { label: "Corrections Applied", value: "correction_applied" },
+  { label: "Reviewer Comments", value: "comment_added" },
+  { label: "Manual Findings", value: "manual_finding_added" },
   { label: "Knowledge Updates", value: "knowledge_updated" },
   { label: "Asset Uploads", value: "asset_uploaded" },
 ];
@@ -53,6 +57,7 @@ export default function ActivityHistoryPage() {
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateRange>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [mountedNow, setMountedNow] = useState<Date | null>(null);
+  const [selectedAuditReview, setSelectedAuditReview] = useState<ReviewSubmission | null>(null);
 
   useEffect(() => {
     // Hydration-safe client reference timestamp initialization
@@ -383,15 +388,26 @@ export default function ActivityHistoryPage() {
                           <td className={`py-3.5 px-4 font-semibold ${statusMeta.textColor}`}>
                             {statusMeta.label}
                           </td>
-                          <td className="py-3.5 px-5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openStudio(rev.id)}
-                              className="inline-flex items-center gap-1 font-semibold text-[#141414] hover:underline"
-                            >
-                              Inspect
-                              <ArrowUpRight className="w-3.5 h-3.5" />
-                            </button>
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAuditReview(rev)}
+                                className="inline-flex items-center gap-1 font-semibold text-[#524E4A] hover:text-[#141414] hover:underline"
+                              >
+                                <History className="w-3.5 h-3.5" />
+                                Audit
+                              </button>
+                              <span className="text-[#E7E1DA]">·</span>
+                              <button
+                                type="button"
+                                onClick={() => openStudio(rev.id)}
+                                className="inline-flex items-center gap-1 font-semibold text-[#141414] hover:underline"
+                              >
+                                Inspect
+                                <ArrowUpRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -403,6 +419,13 @@ export default function ActivityHistoryPage() {
           </div>
         </div>
       )}
+
+      {/* Review-Level Audit History Drawer */}
+      <ReviewAuditDrawer
+        review={selectedAuditReview}
+        isOpen={Boolean(selectedAuditReview)}
+        onClose={() => setSelectedAuditReview(null)}
+      />
     </div>
   );
 }

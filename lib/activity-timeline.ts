@@ -73,6 +73,27 @@ export const ACTIVITY_EVENT_META: Record<
     textClass: "text-[#7C2D12]",
     badgeBg: "bg-[#F9DEC0]",
   },
+  correction_applied: {
+    label: "Correction",
+    bgClass: "bg-[#FAF0C8]/60",
+    borderClass: "border-[#EEDF98]",
+    textClass: "text-[#744210]",
+    badgeBg: "bg-[#FAF0C8]",
+  },
+  comment_added: {
+    label: "Comment",
+    bgClass: "bg-white",
+    borderClass: "border-[#E7E1DA]",
+    textClass: "text-[#524E4A]",
+    badgeBg: "bg-[#F3EDE8]",
+  },
+  manual_finding_added: {
+    label: "Manual Finding",
+    bgClass: "bg-[#F9DEC0]/60",
+    borderClass: "border-[#EDD0AF]",
+    textClass: "text-[#7C2D12]",
+    badgeBg: "bg-[#F9DEC0]",
+  },
 };
 
 /**

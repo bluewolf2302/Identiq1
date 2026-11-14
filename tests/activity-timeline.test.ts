@@ -274,3 +274,59 @@ test("groupActivitiesByDate and empty collections handle safely", () => {
   assert.equal(groups[0].group, "Legacy / Undated");
   assert.equal(groups[0].items.length, 5);
 });
+
+test("filterActivities filters by newly introduced neutral event types", () => {
+  const events: ActivityEvent[] = [
+    {
+      id: "ev-1",
+      actor: "Maya Lin",
+      action: "applied correction in",
+      target: "Doc A",
+      timestamp: "2026-11-14T10:00:00.000Z",
+      type: "correction_applied",
+    },
+    {
+      id: "ev-2",
+      actor: "Maya Lin",
+      action: "commented in",
+      target: "Doc B",
+      timestamp: "2026-11-14T10:05:00.000Z",
+      type: "comment_added",
+    },
+    {
+      id: "ev-3",
+      actor: "Maya Lin",
+      action: "added manual finding to",
+      target: "Doc C",
+      timestamp: "2026-11-14T10:10:00.000Z",
+      type: "manual_finding_added",
+    },
+  ];
+
+  const corrections = filterActivities(events, {
+    eventType: "correction_applied",
+    actor: "all",
+    dateRange: "all",
+    searchQuery: "",
+  });
+  assert.equal(corrections.length, 1);
+  assert.equal(corrections[0].id, "ev-1");
+
+  const comments = filterActivities(events, {
+    eventType: "comment_added",
+    actor: "all",
+    dateRange: "all",
+    searchQuery: "",
+  });
+  assert.equal(comments.length, 1);
+  assert.equal(comments[0].id, "ev-2");
+
+  const manual = filterActivities(events, {
+    eventType: "manual_finding_added",
+    actor: "all",
+    dateRange: "all",
+    searchQuery: "",
+  });
+  assert.equal(manual.length, 1);
+  assert.equal(manual[0].id, "ev-3");
+});

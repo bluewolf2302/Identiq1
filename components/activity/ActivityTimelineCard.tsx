@@ -7,8 +7,10 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  FileCheck,
   FilePlus2,
   History,
+  MessageSquare,
   ShieldAlert,
   Upload,
 } from "lucide-react";
@@ -48,6 +50,12 @@ export function ActivityTimelineCard({
         return <BookOpen className="w-4 h-4 text-[#4A3E7A]" />;
       case "asset_uploaded":
         return <Upload className="w-4 h-4 text-[#7C2D12]" />;
+      case "correction_applied":
+        return <FileCheck className="w-4 h-4 text-[#744210]" />;
+      case "comment_added":
+        return <MessageSquare className="w-4 h-4 text-[#524E4A]" />;
+      case "manual_finding_added":
+        return <ShieldAlert className="w-4 h-4 text-[#7C2D12]" />;
       default:
         return <Clock className="w-4 h-4 text-[#524E4A]" />;
     }

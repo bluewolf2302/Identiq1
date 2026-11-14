@@ -210,7 +210,12 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         const nextFindings = r.findings.map((f) => {
           if (f.id !== findingId) return f;
           resolvedNow = !f.resolved;
-          return { ...f, resolved: resolvedNow };
+          return {
+            ...f,
+            resolved: resolvedNow,
+            resolvedAt: resolvedNow ? new Date().toISOString() : undefined,
+            resolvedBy: resolvedNow ? settings.reviewerName : undefined,
+          };
         });
         return {
           ...r,
@@ -237,6 +242,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     editedText: string,
     applyToCopy = false
   ) => {
+    const targetReview = reviews.find((r) => r.id === reviewId);
+    const targetFinding = targetReview?.findings.find((f) => f.id === findingId);
+
     setReviews((prev) =>
       prev.map((r) => {
         if (r.id !== reviewId) return r;
@@ -256,6 +264,16 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                 ...f,
                 editedCorrection: editedText,
                 resolved: applyToCopy ? true : f.resolved,
+                resolvedAt: applyToCopy
+                  ? new Date().toISOString()
+                  : f.resolved
+                  ? f.resolvedAt
+                  : undefined,
+                resolvedBy: applyToCopy
+                  ? settings.reviewerName
+                  : f.resolved
+                  ? f.resolvedBy
+                  : undefined,
               }
             : f
         );
@@ -267,11 +285,25 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (applyToCopy && targetReview) {
+      logActivity({
+        reviewId,
+        actor: settings.reviewerName,
+        action: `applied correction for "${targetFinding?.title || "finding"}" in`,
+        target: targetReview.title,
+        type: "correction_applied",
+      });
+    }
+
     notify(applyToCopy ? "Correction applied to copy & resolved" : "Correction draft saved");
   };
 
   const addFindingComment = (reviewId: string, findingId: string, text: string) => {
     if (!text.trim()) return;
+    const targetReview = reviews.find((r) => r.id === reviewId);
+    const targetFinding = targetReview?.findings.find((f) => f.id === findingId);
+
     setReviews((prev) =>
       prev.map((r) => {
         if (r.id !== reviewId) return r;
@@ -288,7 +320,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                       author: settings.reviewerName,
                       role: settings.reviewerRole,
                       text: text.trim(),
-                      createdAt: "Just now",
+                      createdAt: new Date().toISOString(),
                     },
                   ],
                 }
@@ -297,10 +329,22 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (targetReview) {
+      logActivity({
+        reviewId,
+        actor: settings.reviewerName,
+        action: `commented on finding "${targetFinding?.title || "issue"}" in`,
+        target: targetReview.title,
+        type: "comment_added",
+      });
+    }
+
     notify("Reviewer comment added");
   };
 
   const addManualFinding = (reviewId: string, finding: ReviewFinding) => {
+    const targetReview = reviews.find((r) => r.id === reviewId);
     setReviews((prev) =>
       prev.map((r) => {
         if (r.id !== reviewId) return r;
@@ -312,6 +356,17 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (targetReview) {
+      logActivity({
+        reviewId,
+        actor: settings.reviewerName,
+        action: `added manual finding "${finding.title}" to`,
+        target: targetReview.title,
+        type: "manual_finding_added",
+      });
+    }
+
     notify("Manual governance finding added");
   };
 
