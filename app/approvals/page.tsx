@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
+  FileBarChart,
   HelpCircle,
   History,
   MessageSquare,
@@ -181,6 +182,14 @@ export default function ApprovalsPage() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <Link
+                  href={`/reports?tab=review&reviewId=${activeReview.id}`}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] whitespace-nowrap shadow-2xs transition-colors"
+                  title="View or export compliance dossier"
+                >
+                  <FileBarChart className="w-3.5 h-3.5 text-[#524E4A]" />
+                  Dossier
+                </Link>
                 <button
                   type="button"
                   onClick={() => setAuditOpen(true)}

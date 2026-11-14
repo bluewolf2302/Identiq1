@@ -12,6 +12,7 @@ import {
   CheckSquare,
   History,
   Settings,
+  FileBarChart,
   Menu,
   X,
   Plus,
@@ -39,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Review Studio", shortLabel: "Review Studio", href: "/studio", icon: ScanSearch },
   { label: "Approvals", shortLabel: "Approvals", href: "/approvals", icon: CheckSquare },
   { label: "Activity / History", shortLabel: "Activity", href: "/activity", icon: History },
+  { label: "Reports & Export", shortLabel: "Reports", href: "/reports", icon: FileBarChart },
   { label: "Settings", shortLabel: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -48,6 +50,7 @@ const TOP_BAR_LINKS = [
   { label: "Asset Library", href: "/assets" },
   { label: "Review Studio", href: "/studio" },
   { label: "Approvals", href: "/approvals" },
+  { label: "Reports", href: "/reports" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
