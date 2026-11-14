@@ -13,6 +13,8 @@ export * from "./checks/logo-check";
 export * from "./checks/typography-check";
 export * from "./checks/layout-check";
 export * from "./vision/gemini-vision";
+export * from "./vision/openrouter-vision";
+export * from "./vision/resilient-vision";
 export * from "./vision/vision-prompts";
 export * from "./evidence/evidence-mapper";
 export * from "./visual-analysis-adapter";

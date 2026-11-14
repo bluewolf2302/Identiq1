@@ -249,23 +249,38 @@ export default function NewReviewPage() {
 
       setStage("analyzing");
       const res = await payloadPromise;
+      const resContentType = res.headers.get("content-type") || "";
       const responseText = await res.text();
       let data: AnalysisResponsePayload;
+
+      const isHtmlResponse =
+        resContentType.includes("text/html") ||
+        responseText.includes("<!DOCTYPE") ||
+        responseText.includes("<html");
+
+      if (isHtmlResponse) {
+        console.error(
+          "Analysis server returned HTML error page instead of JSON. Snippet:",
+          responseText.slice(0, 300),
+        );
+        throw new Error(
+          res.status === 504 || res.status === 503
+            ? "The analysis server timed out or was temporarily unavailable. Your creative asset and form details are safely preserved — please click Retry Review."
+            : "The server returned an unexpected HTML error page. Your creative asset and details are preserved — please click Retry Review.",
+        );
+      }
+
       try {
         data = JSON.parse(responseText) as AnalysisResponsePayload;
-      } catch {
-        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
-          throw new Error(
-            "Server returned an HTML error page. Please check API credentials and server logs.",
-          );
-        }
-        throw new Error(responseText || "Analysis request failed");
+      } catch (parseError) {
+        throw new Error(
+          `Unable to parse server response (${parseError instanceof Error ? parseError.message : "invalid JSON"}). Your creative is preserved — please retry.`,
+        );
       }
 
       if (!res.ok) {
-        throw new Error(
-          (data as unknown as { error?: string }).error || "Analysis request failed",
-        );
+        const errorDetail = (data as unknown as { error?: string }).error;
+        throw new Error(errorDetail || `Analysis request failed with status ${res.status}.`);
       }
 
       setStage("complete");
@@ -300,7 +315,14 @@ export default function NewReviewPage() {
       };
 
       addReview(newReview);
-      notify(`Analysis complete (${data.findings.length} findings generated)`);
+      if (data.analysisStatus === "PARTIAL") {
+        notify(
+          `Review ready (${data.findings.length} findings, partial AI coverage)`,
+          "info",
+        );
+      } else {
+        notify(`Analysis complete (${data.findings.length} findings generated)`);
+      }
       router.push(`/studio?id=${newId}`);
     } catch (err) {
       setErrorMessage(
@@ -358,10 +380,20 @@ export default function NewReviewPage() {
         {errorMessage && (
           <div
             role="alert"
-            className="flex items-center gap-2.5 bg-[#F6D5DA]/60 border border-[#EBC3CA] text-[#7F1D1D] px-4 py-3 rounded-2xl text-xs font-medium"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#F6D5DA]/70 border border-[#EBC3CA] text-[#7F1D1D] px-4 py-3 rounded-2xl text-xs font-medium"
           >
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold shrink-0 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry Review
+            </button>
           </div>
         )}
 

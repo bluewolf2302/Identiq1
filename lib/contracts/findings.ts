@@ -76,6 +76,7 @@ export const FindingDetectorSchema = z.enum([
   "deterministic",
   "image_matching",
   "gemini_vision",
+  "openrouter_vision",
   "ai_semantic",
 ]);
 

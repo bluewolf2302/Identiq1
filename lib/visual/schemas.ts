@@ -49,7 +49,13 @@ export const VisualFindingSchema = z
     confidence: z.number().min(0).max(1),
     reviewStatus: z.enum(["candidate", "uncertain", "needs_human_review"]),
     severity: z.enum(["HIGH", "MEDIUM", "LOW", "INFO"]),
-    detector: z.enum(["ocr", "deterministic", "image_matching", "gemini_vision"]),
+    detector: z.enum([
+      "ocr",
+      "deterministic",
+      "image_matching",
+      "gemini_vision",
+      "openrouter_vision",
+    ]),
     classification: z
       .enum(["objective_mismatch", "possible_mismatch", "design_recommendation"])
       .optional(),

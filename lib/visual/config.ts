@@ -23,6 +23,7 @@ export interface VisualPipelineConfig {
   colorDeltaEPossible: number;
   geminiVisionTimeoutMs: number;
   geminiVisionMaxRetries: number;
+  openrouterVisionTimeoutMs: number;
   previewMaxDimensionPx: number;
 }
 
@@ -56,8 +57,9 @@ export function getVisualPipelineConfig(
     ocrConfidenceThreshold: readPositiveFloatEnv("VISUAL_OCR_CONFIDENCE_THRESHOLD", 0.65),
     colorDeltaESignificant: readPositiveFloatEnv("VISUAL_COLOR_DELTA_E_SIGNIFICANT", 18.0),
     colorDeltaEPossible: readPositiveFloatEnv("VISUAL_COLOR_DELTA_E_POSSIBLE", 10.0),
-    geminiVisionTimeoutMs: readPositiveIntEnv("VISUAL_GEMINI_TIMEOUT_MS", 45_000),
-    geminiVisionMaxRetries: readPositiveIntEnv("VISUAL_GEMINI_MAX_RETRIES", 1),
+    geminiVisionTimeoutMs: readPositiveIntEnv("VISUAL_GEMINI_TIMEOUT_MS", 22_000),
+    geminiVisionMaxRetries: readPositiveIntEnv("VISUAL_GEMINI_MAX_RETRIES", 0),
+    openrouterVisionTimeoutMs: readPositiveIntEnv("VISUAL_OPENROUTER_TIMEOUT_MS", 20_000),
     previewMaxDimensionPx: 960,
   };
 

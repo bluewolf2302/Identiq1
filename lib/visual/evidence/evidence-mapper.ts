@@ -54,6 +54,7 @@ export function deduplicateVisualFindings(
     image_matching: 1,
     ocr: 2,
     gemini_vision: 3,
+    openrouter_vision: 3,
   };
 
   const sorted = [...findings].sort(

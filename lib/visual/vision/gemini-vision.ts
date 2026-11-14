@@ -99,12 +99,13 @@ export function validateAndMapGeminiVisionResponse(
   brandContext: BrandVisualContext,
   assetId: string,
   pageNumber: number,
+  detector: "gemini_vision" | "openrouter_vision" = "gemini_vision",
 ): { findings: VisualFinding[]; validationFailures: number } {
   const parsed = GeminiVisionResponseSchema.safeParse(rawJson);
   if (!parsed.success) {
     throw new GeminiVisionError(
       "INVALID_SCHEMA",
-      "Gemini vision response failed schema validation.",
+      `${detector === "openrouter_vision" ? "OpenRouter" : "Gemini"} vision response failed schema validation.`,
     );
   }
 
@@ -112,6 +113,8 @@ export function validateAndMapGeminiVisionResponse(
   const validVersions = new Set(brandContext.validVersions);
   const validFindings: VisualFinding[] = [];
   let validationFailures = 0;
+
+  const prefix = detector === "openrouter_vision" ? "vis-openrouter" : "vis-gemini";
 
   for (const [idx, item] of parsed.data.findings.entries()) {
     // Reject findings that fabricate non-existent source IDs or versions
@@ -133,7 +136,7 @@ export function validateAndMapGeminiVisionResponse(
     const resolvedTitle = matchingRule?.sourceTitle ?? null;
 
     validFindings.push({
-      id: `vis-gemini-p${pageNumber}-${idx + 1}`,
+      id: `${prefix}-p${pageNumber}-${idx + 1}`,
       ruleId: item.ruleId ?? matchingRule?.ruleId ?? null,
       category: item.category,
       title: item.title,
@@ -156,7 +159,7 @@ export function validateAndMapGeminiVisionResponse(
       confidence: Math.max(0, Math.min(1, item.confidence)),
       reviewStatus: item.reviewStatus,
       severity: item.severity,
-      detector: "gemini_vision",
+      detector,
       classification:
         item.reviewStatus === "candidate" ? "possible_mismatch" : "possible_mismatch",
       suggestedCorrection: item.suggestedCorrection ?? undefined,

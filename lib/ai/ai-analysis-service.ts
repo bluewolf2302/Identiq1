@@ -113,20 +113,30 @@ export function createAiAnalysisServiceFromEnvironment(): AiAnalysisService {
     }
   }
 
-  const primary =
-    process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_MODEL
-      ? new OpenRouterProvider({
-          apiKey: process.env.OPENROUTER_API_KEY,
-          model: process.env.OPENROUTER_MODEL,
-        })
-      : undefined;
-  const fallback =
-    process.env.GEMINI_API_KEY && process.env.GEMINI_MODEL
-      ? new GeminiProvider({
-          apiKey: process.env.GEMINI_API_KEY,
-          model: process.env.GEMINI_MODEL,
-        })
-      : undefined;
+  const openRouterModel =
+    process.env.OPENROUTER_MODEL?.trim() ||
+    process.env.OPENROUTER_TEXT_MODEL?.trim() ||
+    "google/gemini-3.6-flash";
+
+  const geminiModel =
+    process.env.GEMINI_MODEL?.trim() ||
+    process.env.GEMINI_TEXT_MODEL?.trim() ||
+    "gemini-3.6-flash";
+
+  const primary = process.env.OPENROUTER_API_KEY?.trim()
+    ? new OpenRouterProvider({
+        apiKey: process.env.OPENROUTER_API_KEY.trim(),
+        model: openRouterModel,
+      })
+    : undefined;
+
+  const fallback = process.env.GEMINI_API_KEY?.trim()
+    ? new GeminiProvider({
+        apiKey: process.env.GEMINI_API_KEY.trim(),
+        model: geminiModel,
+      })
+    : undefined;
+
   return new AiAnalysisService({ primary, fallback });
 }
 

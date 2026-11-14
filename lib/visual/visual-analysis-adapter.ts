@@ -27,10 +27,11 @@ import {
   type VisualObservation,
   VisualValidationError,
 } from "./types";
+import { GeminiVisionError } from "./vision/gemini-vision";
 import {
-  createGeminiVisionAdapterFromEnvironment,
-  GeminiVisionError,
-} from "./vision/gemini-vision";
+  createResilientVisionAdapterFromEnvironment,
+  ResilientVisionAdapter,
+} from "./vision/resilient-vision";
 
 export interface AnalyzeCreativeVisuallyInput {
   creative: CreativeFileInput;
@@ -128,15 +129,34 @@ export async function analyzeCreativeVisually(
 
   const visionAdapter =
     deps.visionAdapter === undefined
-      ? createGeminiVisionAdapterFromEnvironment(validatedFile.assetId, {
-          timeoutMs: config.geminiVisionTimeoutMs,
-          maxRetries: config.geminiVisionMaxRetries,
+      ? createResilientVisionAdapterFromEnvironment(validatedFile.assetId, {
+          geminiTimeoutMs: config.geminiVisionTimeoutMs,
+          geminiMaxRetries: config.geminiVisionMaxRetries,
+          openrouterTimeoutMs: config.openrouterVisionTimeoutMs,
+          onFallbackAttempt: ({ pageNumber, primaryProvider, fallbackProvider, reason }) => {
+            logger.warn(
+              "vision-fallback",
+              `Primary vision provider (${primaryProvider}) failed on page ${pageNumber}; falling back to ${fallbackProvider}: ${reason}`,
+              { pageNumber },
+            );
+            warnings.push(
+              `Page ${pageNumber}: Primary vision provider (${primaryProvider}) failed (${reason}); recovered using fallback vision provider (${fallbackProvider}).`,
+            );
+          },
         })
       : deps.visionAdapter;
 
-  if (!visionAdapter) {
+  if (
+    visionAdapter &&
+    "hasConfiguredProvider" in visionAdapter &&
+    !(visionAdapter as ResilientVisionAdapter).hasConfiguredProvider
+  ) {
     warnings.push(
-      "Gemini vision model is not configured (GEMINI_API_KEY missing); ran OCR and deterministic visual checks only.",
+      "Neither GEMINI_API_KEY nor OPENROUTER_API_KEY is configured for vision analysis; ran OCR and deterministic visual checks only.",
+    );
+  } else if (!visionAdapter) {
+    warnings.push(
+      "Vision model disabled; ran OCR and deterministic visual checks only.",
     );
   }
 
@@ -261,10 +281,14 @@ export async function analyzeCreativeVisually(
         geminiDurationMs += elapsed;
         geminiRetryCount += visionOut.retryCount;
         validationFailureCount += visionOut.validationFailures;
-        visionProviderUsed = `${visionAdapter.providerName}:${visionAdapter.modelName}`;
+        const usedProvider =
+          "providerUsed" in visionOut && typeof visionOut.providerUsed === "string"
+            ? visionOut.providerUsed
+            : `${visionAdapter.providerName}:${visionAdapter.modelName}`;
+        visionProviderUsed = usedProvider;
         rawVisualFindings.push(...visionOut.findings);
 
-        logger.info("gemini-vision", "Completed Gemini Vision page analysis", {
+        logger.info("gemini-vision", "Completed AI Vision page analysis", {
           pageNumber: page.pageNumber,
           metrics: {
             geminiProvider: visionAdapter.providerName,
@@ -273,6 +297,7 @@ export async function analyzeCreativeVisually(
             retryCount: visionOut.retryCount,
             validationFailures: visionOut.validationFailures,
             candidateCount: visionOut.findings.length,
+            providerUsed: usedProvider,
           },
         });
       } catch (error) {
@@ -282,7 +307,9 @@ export async function analyzeCreativeVisually(
         const safeErr =
           error instanceof GeminiVisionError
             ? `AI visual interpretation unavailable (${error.code}): ${error.message}`
-            : "AI visual interpretation could not be completed.";
+            : error instanceof Error
+              ? `AI visual interpretation unavailable: ${error.message}`
+              : "AI visual interpretation could not be completed.";
         errors.push(safeErr);
         warnings.push(
           `Page ${page.pageNumber}: ${safeErr} Deterministic visual checks and OCR results were preserved.`,

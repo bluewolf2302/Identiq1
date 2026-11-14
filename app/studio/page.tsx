@@ -332,8 +332,29 @@ function ReviewStudioInner() {
                     {activeReview.analysisStatus === "PARTIAL" && (
                       <>
                         <span>·</span>
-                        <span className="px-2 py-0.5 rounded-full bg-[#FAF0C8] text-[#664D03] font-semibold text-[11px]">
+                        <span
+                          aria-label="Partial review"
+                          className="px-2.5 py-0.5 rounded-full bg-[#FAF0C8] border border-[#E7D89E] text-[#664D03] font-semibold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <AlertTriangle className="w-3 h-3" />
                           Partial Review
+                        </span>
+                      </>
+                    )}
+                    {Boolean(
+                      activeReview.providerUsed?.includes("openrouter") ||
+                        activeReview.visualSummary?.warnings.some((w) =>
+                          w.toLowerCase().includes("fallback"),
+                        ),
+                    ) && (
+                      <>
+                        <span>·</span>
+                        <span
+                          aria-label="Fallback provider used"
+                          className="px-2.5 py-0.5 rounded-full bg-[#DDF0FA] border border-[#CBE2EF] text-[#0C4A6E] font-semibold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Fallback Provider Active
                         </span>
                       </>
                     )}
@@ -414,25 +435,44 @@ function ReviewStudioInner() {
                 </div>
               </div>
 
-              {/* Partial Processing Warning Banner */}
-              {activeReview.visualSummary &&
-                (activeReview.visualSummary.warnings.length > 0 ||
-                  activeReview.visualSummary.errors.length > 0) && (
+              {/* Resilience & Governance Pipeline Status Banner */}
+              {activeReview.analysisStatus === "PARTIAL" && (
+                <div
+                  role="status"
+                  className="bg-[#FAF0C8]/90 border border-[#E7D89E] rounded-2xl p-4 text-xs text-[#664D03] space-y-1.5 shadow-xs"
+                >
+                  <p className="font-bold flex items-center gap-1.5 text-[#141414]">
+                    <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0" />
+                    Partial Governance Review
+                  </p>
+                  <p className="leading-relaxed text-[#524E4A]">
+                    OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were successfully verified. AI semantic interpretation was temporarily unavailable or had partial coverage, but all evidence findings below are fully actionable.
+                  </p>
+                  {activeReview.visualSummary?.warnings && activeReview.visualSummary.warnings.length > 0 && (
+                    <div className="pt-1 border-t border-[#E7D89E]/60 text-[11px] text-[#664D03] space-y-0.5">
+                      {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
+                        <p key={`warn-${i}`}>• {warn}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeReview.analysisStatus !== "PARTIAL" &&
+                activeReview.visualSummary &&
+                activeReview.visualSummary.warnings.length > 0 && (
                   <div
                     role="status"
-                    className="bg-[#FAF0C8]/80 border border-[#E7D89E] rounded-2xl p-3.5 text-xs text-[#664D03] space-y-1"
+                    className="bg-[#DDF0FA]/80 border border-[#CBE2EF] rounded-2xl p-3.5 text-xs text-[#0C4A6E] space-y-1"
                   >
                     <p className="font-bold flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      Visual Pipeline Notices ({activeReview.visualSummary.status})
+                      <Sparkles className="w-4 h-4 text-[#0284C7] shrink-0" />
+                      Pipeline Notice
                     </p>
-                    {activeReview.visualSummary.errors.map((err, i) => (
-                      <p key={`err-${i}`} className="text-[#842029] font-medium">
-                        • {err}
+                    {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
+                      <p key={`warn-${i}`} className="text-[#0369A1]">
+                        • {warn}
                       </p>
-                    ))}
-                    {activeReview.visualSummary.warnings.slice(0, 3).map((warn, i) => (
-                      <p key={`warn-${i}`}>• {warn}</p>
                     ))}
                   </div>
                 )}

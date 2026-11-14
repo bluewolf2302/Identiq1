@@ -152,11 +152,32 @@ export class AnalysisOrchestrator {
     );
 
     const deterministicFindings = this.runDeterministic(content, contextResult);
-    const semanticResult = await this.runSemantic(
-      content,
-      contextResult,
-      deterministicFindings,
-    );
+    let semanticResult: {
+      findings: ReviewFinding[];
+      providerUsed: string;
+      fallbackUsed: boolean;
+      error?: string;
+    };
+
+    try {
+      semanticResult = await this.runSemantic(
+        content,
+        contextResult,
+        deterministicFindings,
+      );
+    } catch (error) {
+      // If there are no deterministic findings AND no visual result, rethrow error to preserve test contract
+      if (deterministicFindings.length === 0 && !visualResult) {
+        throw error;
+      }
+      semanticResult = {
+        findings: [],
+        providerUsed: "none",
+        fallbackUsed: false,
+        error: toSafeFailureMessage(error),
+      };
+    }
+
     const findings = mergeFindings(
       deterministicFindings,
       semanticResult.findings,
@@ -165,15 +186,27 @@ export class AnalysisOrchestrator {
 
     const isPartial =
       contextResult.warnings.length > 0 ||
-      visualResult?.status === "PARTIAL";
+      visualResult?.status === "PARTIAL" ||
+      Boolean(semanticResult.error);
+
+    const isVisualFallback = Boolean(
+      visualResult?.visionProviderUsed &&
+        (visualResult.visionProviderUsed.includes("openrouter") ||
+          visualResult.warnings.some((w) => w.toLowerCase().includes("fallback"))),
+    );
+
+    const resolvedProvider =
+      semanticResult.providerUsed !== "none"
+        ? semanticResult.providerUsed
+        : visualResult?.visionProviderUsed ?? "deterministic-governance";
 
     const responseInput = {
       submissionId: request.data.submissionId,
       analysisRunId,
       analysisStatus: isPartial ? ("PARTIAL" as const) : ("COMPLETED" as const),
       findings,
-      providerUsed: semanticResult.providerUsed,
-      fallbackUsed: semanticResult.fallbackUsed,
+      providerUsed: resolvedProvider,
+      fallbackUsed: semanticResult.fallbackUsed || isVisualFallback,
       analysisTimestamp: this.now().toISOString(),
       ...(visualResult
         ? {

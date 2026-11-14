@@ -279,6 +279,7 @@ export interface GeminiVisionAdapter {
     findings: VisualFinding[];
     retryCount: number;
     validationFailures: number;
+    modelUsed?: string;
   }>;
 }
 
