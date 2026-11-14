@@ -8,11 +8,13 @@ import {
   Check,
   CheckCircle2,
   HelpCircle,
+  History,
   MessageSquare,
   Search,
   Send,
   XCircle,
 } from "lucide-react";
+import { ReviewAuditDrawer } from "@/components/audit/ReviewAuditDrawer";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { EVIDENCE_STYLE, REVIEW_STATUS_META } from "@/components/ThemeTokens";
 import { ReviewStatus } from "@/lib/types";
@@ -40,6 +42,7 @@ export default function ApprovalsPage() {
   const [reviewerNote, setReviewerNote] = useState("");
   const [inlineEdits, setInlineEdits] = useState<Record<string, string>>({});
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [auditOpen, setAuditOpen] = useState(false);
 
   const filteredReviews = useMemo(() => {
     return reviews.filter((r) => {
@@ -177,13 +180,23 @@ export default function ApprovalsPage() {
                 <h2 className="text-xl font-bold text-[#141414]">{activeReview.title}</h2>
               </div>
 
-              <Link
-                href={`/studio?id=${activeReview.id}`}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] whitespace-nowrap shrink-0"
-              >
-                Open in Review Studio
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAuditOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] whitespace-nowrap shadow-2xs transition-colors"
+                >
+                  <History className="w-3.5 h-3.5 text-[#524E4A]" />
+                  Audit History
+                </button>
+                <Link
+                  href={`/studio?id=${activeReview.id}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] whitespace-nowrap shrink-0 transition-colors"
+                >
+                  Open in Review Studio
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
             </div>
 
             {/* Active Copy Snapshot */}
@@ -371,6 +384,13 @@ export default function ApprovalsPage() {
           </div>
         </div>
       )}
+
+      {/* Review-Level Audit History Drawer */}
+      <ReviewAuditDrawer
+        review={activeReview}
+        isOpen={auditOpen}
+        onClose={() => setAuditOpen(false)}
+      />
     </div>
   );
 }

@@ -30,11 +30,18 @@ export interface ReviewFinding {
   recommendation: string;
   affectedContent: string;
   resolved: boolean;
+  resolvedAt?: string;
+  resolvedBy?: string;
   editedCorrection?: string;
   comments: ReviewComment[];
   evidenceReferences?: import("./contracts").EvidenceReference[];
   sourceVersionIds?: string[];
   location?: import("./contracts").FindingLocation;
+  confidence?: number;
+  detector?: import("./contracts").FindingDetector;
+  ruleId?: string | null;
+  requiresHumanReview?: boolean;
+  sourceDomain?: "text" | "visual";
 }
 
 export type ReviewStatus =
@@ -77,6 +84,8 @@ export interface ReviewSubmission {
   fallbackUsed?: boolean;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
+  ocrBlocks?: import("./contracts").OcrBlockContract[];
+  visualSummary?: import("./contracts").VisualAnalysisSummary;
 }
 
 export type KnowledgeSection =
@@ -134,7 +143,10 @@ export interface ActivityEvent {
     | "approved"
     | "changes_requested"
     | "knowledge_updated"
-    | "asset_uploaded";
+    | "asset_uploaded"
+    | "correction_applied"
+    | "comment_added"
+    | "manual_finding_added";
 }
 
 export interface AnalysisRequestPayload {
@@ -158,4 +170,6 @@ export interface AnalysisResponsePayload {
   analysisRunId?: string;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   fallbackUsed?: boolean;
+  ocrBlocks?: import("./contracts").OcrBlockContract[];
+  visualSummary?: import("./contracts").VisualAnalysisSummary;
 }

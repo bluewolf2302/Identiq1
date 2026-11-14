@@ -7,20 +7,26 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test",
+    "test": "tsx --test tests/*.test.ts tests/visual/*.test.ts",
     "ai:smoke:gemini": "tsx scripts/ai-smoke-gemini.ts",
     "ai:smoke:api": "tsx scripts/ai-smoke-analysis-api.ts"
   },
   "dependencies": {
     "@google/genai": "^3.3.0",
+    "@napi-rs/canvas": "^1.1.1",
+    "@tesseract.js-data/eng": "^1.0.0",
     "@types/canvas-confetti": "^1.9.0",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.72.0",
     "motion": "^14.13.0",
     "next": "16.4.6",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
     "qrcode.react": "^4.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

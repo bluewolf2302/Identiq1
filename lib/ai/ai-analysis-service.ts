@@ -139,39 +139,29 @@ export function createAiAnalysisServiceFromEnvironment(
     loadLocalEnvironment();
   }
   const env = environment ?? process.env;
-
   const geminiConfiguration = getProviderConfiguration(
     env.GEMINI_API_KEY,
-    env.GEMINI_MODEL,
+    env.GEMINI_MODEL ?? env.GEMINI_TEXT_MODEL,
   );
   const openRouterConfiguration = getProviderConfiguration(
     env.OPENROUTER_API_KEY,
-    env.OPENROUTER_MODEL,
+    env.OPENROUTER_MODEL ?? env.OPENROUTER_TEXT_MODEL,
   );
   const configured = {
     gemini: geminiConfiguration
-      ? new GeminiProvider({
-          ...geminiConfiguration,
-          ...options,
-        })
+      ? new GeminiProvider({ ...geminiConfiguration, ...options })
       : undefined,
     openrouter: openRouterConfiguration
-      ? new OpenRouterProvider({
-          ...openRouterConfiguration,
-          ...options,
-        })
+      ? new OpenRouterProvider({ ...openRouterConfiguration, ...options })
       : undefined,
   };
-  const primaryName =
-    env.AI_PRIMARY_PROVIDER?.trim().toLowerCase() || "gemini";
+  const primaryName = env.AI_PRIMARY_PROVIDER?.trim().toLowerCase() || "gemini";
   if (primaryName !== "gemini" && primaryName !== "openrouter") {
     throw new InvalidAiProviderConfigurationError(primaryName);
   }
-  const fallbackName =
-    primaryName === "gemini" ? "openrouter" : "gemini";
+  const fallbackName = primaryName === "gemini" ? "openrouter" : "gemini";
   const selectedPrimary = configured[primaryName];
   const configuredFallback = configured[fallbackName];
-
   return new AiAnalysisService({
     primary: selectedPrimary ?? configuredFallback,
     fallback: selectedPrimary ? configuredFallback : undefined,
@@ -182,12 +172,6 @@ function getProviderConfiguration(
   apiKey: string | undefined,
   model: string | undefined,
 ): Pick<ProviderConfiguration, "apiKey" | "model"> | undefined {
-  if (!apiKey?.trim() || !model?.trim()) {
-    return undefined;
-  }
-
-  return {
-    apiKey: apiKey.trim(),
-    model: model.trim(),
-  };
+  if (!apiKey?.trim() || !model?.trim()) return undefined;
+  return { apiKey: apiKey.trim(), model: model.trim() };
 }

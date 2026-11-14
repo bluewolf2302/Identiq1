@@ -6,12 +6,16 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   FileWarning,
   HelpCircle,
+  History,
   Layers,
   MessageSquare,
   Plus,
+  ScanText,
   Search,
   Send,
   ShieldAlert,
@@ -21,9 +25,15 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { ReviewAuditDrawer } from "@/components/audit/ReviewAuditDrawer";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { EVIDENCE_STYLE, REVIEW_STATUS_META, SEVERITY_LABEL } from "@/components/ThemeTokens";
-import { EvidenceStatus, FindingCategory, FindingSeverity, ReviewFinding } from "@/lib/types";
+import {
+  EvidenceStatus,
+  FindingCategory,
+  FindingSeverity,
+  ReviewFinding,
+} from "@/lib/types";
 
 const CATEGORY_TOOLBAR: Array<{
   label: string;
@@ -38,6 +48,16 @@ const CATEGORY_TOOLBAR: Array<{
   { label: "Visual", category: "Visual Identity", pastelBg: "bg-[#CDEEE0]", icon: Eye },
   { label: "Legal", category: "Legal & Usage", pastelBg: "bg-[#F9DEC0]", icon: FileWarning },
 ];
+
+type DomainFilter = "all" | "text" | "visual";
+
+function isVisualFinding(f: ReviewFinding): boolean {
+  return (
+    f.sourceDomain === "visual" ||
+    f.category === "Visual Identity" ||
+    Boolean(f.location?.boundingBox)
+  );
+}
 
 function ReviewStudioInner() {
   const searchParams = useSearchParams();
@@ -65,13 +85,18 @@ function ReviewStudioInner() {
     [reviews, activeReviewId]
   );
 
+  const [domainFilter, setDomainFilter] = useState<DomainFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<"All" | FindingCategory>("All");
   const [evidenceFilter, setEvidenceFilter] = useState<"All" | EvidenceStatus>("All");
+  const [severityFilter, setSeverityFilter] = useState<"All" | FindingSeverity>("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedFindingId, setSelectedFindingId] = useState<string>("");
+  const [activePageNumber, setActivePageNumber] = useState<number>(1);
+  const [showOcrBoxes, setShowOcrBoxes] = useState(false);
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [commentText, setCommentText] = useState("");
   const [compactDensity, setCompactDensity] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   // Manual finding modal
   const [manualOpen, setManualOpen] = useState(false);
@@ -85,8 +110,14 @@ function ReviewStudioInner() {
   const filteredFindings = useMemo(() => {
     if (!activeReview) return [];
     return activeReview.findings.filter((f) => {
+      const visual = isVisualFinding(f);
+      const domMatch =
+        domainFilter === "all" ||
+        (domainFilter === "visual" && visual) ||
+        (domainFilter === "text" && !visual);
       const catMatch = categoryFilter === "All" || f.category === categoryFilter;
       const evMatch = evidenceFilter === "All" || f.evidenceStatus === evidenceFilter;
+      const sevMatch = severityFilter === "All" || f.severity === severityFilter;
       const q = searchTerm.trim().toLowerCase();
       const textMatch =
         !q ||
@@ -94,9 +125,9 @@ function ReviewStudioInner() {
         f.description.toLowerCase().includes(q) ||
         f.sourceReference.toLowerCase().includes(q) ||
         f.affectedContent.toLowerCase().includes(q);
-      return catMatch && evMatch && textMatch;
+      return domMatch && catMatch && evMatch && sevMatch && textMatch;
     });
-  }, [activeReview, categoryFilter, evidenceFilter, searchTerm]);
+  }, [activeReview, domainFilter, categoryFilter, evidenceFilter, severityFilter, searchTerm]);
 
   const selectedFinding = useMemo(() => {
     if (!activeReview) return null;
@@ -107,6 +138,24 @@ function ReviewStudioInner() {
       null
     );
   }, [activeReview, selectedFindingId, filteredFindings]);
+
+  const pages = activeReview?.visualSummary?.pages ?? [];
+  const totalPages = pages.length || 1;
+  const clampedPageNumber = Math.max(1, Math.min(totalPages, activePageNumber));
+  const currentPageObj = pages.find((p) => p.pageNumber === clampedPageNumber);
+  const currentPageImageUrl = currentPageObj?.previewDataUrl ?? activeReview?.assetUrl;
+
+  const pageOcrBlocks = useMemo(() => {
+    if (!activeReview?.ocrBlocks) return [];
+    return activeReview.ocrBlocks.filter((b) => b.pageNumber === clampedPageNumber);
+  }, [activeReview, clampedPageNumber]);
+
+  const handleSelectFinding = (finding: ReviewFinding) => {
+    setSelectedFindingId(finding.id);
+    if (finding.location?.pageNumber) {
+      setActivePageNumber(finding.location.pageNumber);
+    }
+  };
 
   const correctionDraft = selectedFinding
     ? correctionDrafts[selectedFinding.id] ??
@@ -128,6 +177,8 @@ function ReviewStudioInner() {
   }
 
   const totalFindings = activeReview.findings.length;
+  const visualFindingsCount = activeReview.findings.filter(isVisualFinding).length;
+  const textFindingsCount = totalFindings - visualFindingsCount;
   const resolvedOrSupported = activeReview.findings.filter(
     (f) => f.resolved || f.evidenceStatus === "supported"
   ).length;
@@ -136,9 +187,16 @@ function ReviewStudioInner() {
 
   const renderHighlightedCopy = () => {
     const copy = activeReview.textContent;
+    if (!copy) {
+      return (
+        <p className="text-xs text-[#6B6560] italic">
+          No text copy submitted or extracted for this creative.
+        </p>
+      );
+    }
     const phrase = selectedFinding?.affectedContent?.trim();
     if (!phrase || !copy.toLowerCase().includes(phrase.toLowerCase())) {
-      return <p className="text-sm text-[#2B2927] leading-relaxed">{copy}</p>;
+      return <p className="text-sm text-[#2B2927] leading-relaxed whitespace-pre-wrap">{copy}</p>;
     }
 
     const idx = copy.toLowerCase().indexOf(phrase.toLowerCase());
@@ -154,7 +212,7 @@ function ReviewStudioInner() {
         : "bg-[#CDEEE0] text-[#14532D]";
 
     return (
-      <p className="text-sm text-[#2B2927] leading-relaxed">
+      <p className="text-sm text-[#2B2927] leading-relaxed whitespace-pre-wrap">
         {before}
         <mark className={`${highlightClass} px-1.5 py-0.5 rounded-md font-semibold`}>
           {match}
@@ -181,6 +239,7 @@ function ReviewStudioInner() {
       affectedContent: "",
       resolved: false,
       comments: [],
+      sourceDomain: manualCategory === "Visual Identity" ? "visual" : "text",
     };
     addManualFinding(activeReview.id, item);
     setSelectedFindingId(item.id);
@@ -196,14 +255,20 @@ function ReviewStudioInner() {
     return <HelpCircle className="w-4 h-4 text-[#664D03]" />;
   };
 
+  const selectedBoxOnCurrentPage =
+    selectedFinding?.location?.boundingBox &&
+    (!selectedFinding.location.pageNumber ||
+      selectedFinding.location.pageNumber === clampedPageNumber)
+      ? selectedFinding.location.boundingBox
+      : null;
+
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-[#F7F6F3] flex flex-col">
-      {/* Studio Workspace Grid */}
       <div className="flex-1 max-w-[1520px] w-full mx-auto px-4 sm:px-6 py-5 pb-24">
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-          {/* Left / Center Split Area (Reference 2 light workspace + floating tool strip) */}
+          {/* Left / Center Split Area */}
           <div className="xl:col-span-8 flex gap-4 items-start">
-            {/* Reference 2 Left Vertical Floating Tool Strip */}
+            {/* Left Vertical Floating Tool Strip */}
             <div className="hidden sm:flex flex-col justify-between items-center gap-4 shrink-0 sticky top-20">
               <div className="bg-white border border-[#E7E1DA] rounded-full p-1.5 flex flex-col gap-1.5 shadow-xs">
                 {CATEGORY_TOOLBAR.map((item) => {
@@ -214,6 +279,7 @@ function ReviewStudioInner() {
                       key={item.category}
                       type="button"
                       title={item.label}
+                      aria-label={`Filter category ${item.label}`}
                       onClick={() => setCategoryFilter(item.category)}
                       className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
                         active
@@ -231,6 +297,7 @@ function ReviewStudioInner() {
                 <button
                   type="button"
                   title="Comfortable view"
+                  aria-label="Comfortable view"
                   onClick={() => setCompactDensity(false)}
                   className={`w-8 h-8 rounded-full flex items-center justify-center ${
                     !compactDensity ? "bg-[#FAF8F6] text-[#141414]" : "text-[#6B6560]"
@@ -241,6 +308,7 @@ function ReviewStudioInner() {
                 <button
                   type="button"
                   title="Compact view"
+                  aria-label="Compact view"
                   onClick={() => setCompactDensity(true)}
                   className={`w-8 h-8 rounded-full flex items-center justify-center ${
                     compactDensity ? "bg-[#FAF8F6] text-[#141414]" : "text-[#6B6560]"
@@ -253,7 +321,7 @@ function ReviewStudioInner() {
 
             {/* Main Studio Center Column */}
             <div className="flex-1 min-w-0 space-y-5">
-              {/* Top Studio Controls + Reference 2 3-Tile KPI Counters */}
+              {/* Top Studio Controls + KPI Counters */}
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6560] mb-1">
@@ -264,6 +332,35 @@ function ReviewStudioInner() {
                     <span className={`font-semibold ${statusMeta.textColor}`}>
                       {statusMeta.label}
                     </span>
+                    {activeReview.analysisStatus === "PARTIAL" && (
+                      <>
+                        <span>·</span>
+                        <span
+                          aria-label="Partial review"
+                          className="px-2.5 py-0.5 rounded-full bg-[#FAF0C8] border border-[#E7D89E] text-[#664D03] font-semibold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          Partial Review
+                        </span>
+                      </>
+                    )}
+                    {Boolean(
+                      activeReview.providerUsed?.includes("openrouter") ||
+                        activeReview.visualSummary?.warnings.some((w) =>
+                          w.toLowerCase().includes("fallback"),
+                        ),
+                    ) && (
+                      <>
+                        <span>·</span>
+                        <span
+                          aria-label="Fallback provider used"
+                          className="px-2.5 py-0.5 rounded-full bg-[#DDF0FA] border border-[#CBE2EF] text-[#0C4A6E] font-semibold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Fallback Provider Active
+                        </span>
+                      </>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#141414]">
@@ -275,6 +372,7 @@ function ReviewStudioInner() {
                       onChange={(e) => {
                         setActiveReviewId(e.target.value);
                         setSelectedFindingId("");
+                        setActivePageNumber(1);
                       }}
                       className="px-3 py-1.5 rounded-full bg-white border border-[#E7E1DA] text-xs font-semibold text-[#141414] max-w-[260px]"
                     >
@@ -287,12 +385,22 @@ function ReviewStudioInner() {
                   </div>
                 </div>
 
-                {/* Reference 2 Search + 3 KPI Counter Tiles */}
+                {/* Search + 3 KPI Counter Tiles */}
                 <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setAuditOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] transition-colors shadow-2xs whitespace-nowrap"
+                  >
+                    <History className="w-3.5 h-3.5 text-[#524E4A]" />
+                    Audit History
+                  </button>
+
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 text-[#6B6560] absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      aria-label="Search findings"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder="Search findings..."
@@ -339,7 +447,49 @@ function ReviewStudioInner() {
                 </div>
               </div>
 
-              {/* Submitted Content Preview Card */}
+              {/* Resilience & Governance Pipeline Status Banner */}
+              {activeReview.analysisStatus === "PARTIAL" && (
+                <div
+                  role="status"
+                  className="bg-[#FAF0C8]/90 border border-[#E7D89E] rounded-2xl p-4 text-xs text-[#664D03] space-y-1.5 shadow-xs"
+                >
+                  <p className="font-bold flex items-center gap-1.5 text-[#141414]">
+                    <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0" />
+                    Partial Governance Review
+                  </p>
+                  <p className="leading-relaxed text-[#524E4A]">
+                    OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were successfully verified. AI semantic interpretation was temporarily unavailable or had partial coverage, but all evidence findings below are fully actionable.
+                  </p>
+                  {activeReview.visualSummary?.warnings && activeReview.visualSummary.warnings.length > 0 && (
+                    <div className="pt-1 border-t border-[#E7D89E]/60 text-[11px] text-[#664D03] space-y-0.5">
+                      {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
+                        <p key={`warn-${i}`}>• {warn}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeReview.analysisStatus !== "PARTIAL" &&
+                activeReview.visualSummary &&
+                activeReview.visualSummary.warnings.length > 0 && (
+                  <div
+                    role="status"
+                    className="bg-[#DDF0FA]/80 border border-[#CBE2EF] rounded-2xl p-3.5 text-xs text-[#0C4A6E] space-y-1"
+                  >
+                    <p className="font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-[#0284C7] shrink-0" />
+                      Pipeline Notice
+                    </p>
+                    {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
+                      <p key={`warn-${i}`} className="text-[#0369A1]">
+                        • {warn}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+              {/* Submitted Creative & Copy Preview Card */}
               <div className="bg-white border border-[#E7E1DA] rounded-[24px] p-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 mb-4 border-b border-[#EFECE7]">
                   <div>
@@ -376,35 +526,182 @@ function ReviewStudioInner() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
-                  {activeReview.assetUrl && (
-                    <div className="md:col-span-5">
-                      <img
-                        src={activeReview.assetUrl}
-                        alt={activeReview.assetName || activeReview.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full aspect-[4/3] object-cover rounded-2xl border border-[#E7E1DA]"
-                      />
+                  {(currentPageImageUrl || pages.length > 0) && (
+                    <div className="md:col-span-6 space-y-2">
+                      {/* Page navigation bar for multi-page PDFs or visual previews */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          {pages.length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                aria-label="Previous page"
+                                disabled={clampedPageNumber <= 1}
+                                onClick={() => setActivePageNumber((p) => Math.max(1, p - 1))}
+                                className="p-1 rounded-full border border-[#E7E1DA] bg-[#FAF8F6] disabled:opacity-40"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="font-semibold text-[#141414] tabular-nums">
+                                Page {clampedPageNumber} / {totalPages}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Next page"
+                                disabled={clampedPageNumber >= totalPages}
+                                onClick={() =>
+                                  setActivePageNumber((p) => Math.min(totalPages, p + 1))
+                                }
+                                className="p-1 rounded-full border border-[#E7E1DA] bg-[#FAF8F6] disabled:opacity-40"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {pages.length <= 1 && (
+                            <span className="text-[11px] font-semibold text-[#6B6560]">
+                              Creative Evidence Preview
+                            </span>
+                          )}
+                        </div>
+
+                        {pageOcrBlocks.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowOcrBoxes((v) => !v)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
+                              showOcrBoxes
+                                ? "bg-[#141414] text-white border-[#141414]"
+                                : "bg-[#FAF8F6] text-[#3F3B37] border-[#E7E1DA]"
+                            }`}
+                          >
+                            <ScanText className="w-3 h-3" />
+                            OCR Regions ({pageOcrBlocks.length})
+                          </button>
+                        )}
+                      </div>
+
+                      {currentPageObj?.status === "failed" ? (
+                        <div className="rounded-2xl border border-[#EBC3CA] bg-[#F6D5DA]/40 p-6 text-center space-y-1.5">
+                          <AlertTriangle className="w-5 h-5 text-[#842029] mx-auto" />
+                          <p className="text-xs font-bold text-[#842029]">
+                            Page {clampedPageNumber} failed to render
+                          </p>
+                          <p className="text-[11px] text-[#7F1D1D]">
+                            {currentPageObj.error || "Page processing error."}
+                          </p>
+                        </div>
+                      ) : currentPageImageUrl ? (
+                        <div className="relative w-full rounded-2xl border border-[#E7E1DA] overflow-hidden bg-[#FAF8F6]">
+                          <img
+                            src={currentPageImageUrl}
+                            alt={`${activeReview.assetName || activeReview.title} page ${clampedPageNumber}`}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-auto block"
+                          />
+
+                          {/* Optional OCR bounding boxes */}
+                          {showOcrBoxes &&
+                            pageOcrBlocks.map((block, i) => (
+                              <div
+                                key={`ocr-box-${i}`}
+                                title={`${block.source.toUpperCase()} (${Math.round(
+                                  block.confidence * 100,
+                                )}%): ${block.text}`}
+                                style={{
+                                  left: `${block.boundingBox.x * 100}%`,
+                                  top: `${block.boundingBox.y * 100}%`,
+                                  width: `${block.boundingBox.width * 100}%`,
+                                  height: `${block.boundingBox.height * 100}%`,
+                                }}
+                                className={`absolute pointer-events-none border ${
+                                  block.uncertain
+                                    ? "border-dashed border-amber-600 bg-amber-400/15"
+                                    : "border-sky-600/70 bg-sky-400/10"
+                                }`}
+                              />
+                            ))}
+
+                          {/* Highlighted Finding Evidence Bounding Box */}
+                          {selectedBoxOnCurrentPage && selectedFinding && (
+                            <div
+                              data-testid="evidence-bounding-box"
+                              style={{
+                                left: `${selectedBoxOnCurrentPage.x * 100}%`,
+                                top: `${selectedBoxOnCurrentPage.y * 100}%`,
+                                width: `${selectedBoxOnCurrentPage.width * 100}%`,
+                                height: `${selectedBoxOnCurrentPage.height * 100}%`,
+                              }}
+                              className={`absolute pointer-events-none rounded-md border-2 transition-all ${
+                                selectedFinding.evidenceStatus === "conflicting"
+                                  ? "border-[#BE123C] bg-[#F43F5E]/15"
+                                  : selectedFinding.evidenceStatus === "unverified"
+                                    ? "border-[#B45309] bg-[#F59E0B]/15"
+                                    : "border-[#047857] bg-[#10B981]/15"
+                              }`}
+                            >
+                              <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded bg-[#141414] text-white text-[10px] font-semibold whitespace-nowrap shadow">
+                                {selectedFinding.ruleId || selectedFinding.category}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
                       {activeReview.assetName && (
-                        <p className="text-[11px] font-mono text-[#6B6560] mt-1.5 truncate">
+                        <p className="text-[11px] font-mono text-[#6B6560] truncate">
                           {activeReview.assetName}
+                          {currentPageObj
+                            ? ` · ${currentPageObj.imageWidth}×${currentPageObj.imageHeight}px · rot ${currentPageObj.rotation}°`
+                            : ""}
                         </p>
                       )}
                     </div>
                   )}
-                  <div className={activeReview.assetUrl ? "md:col-span-7" : "md:col-span-12"}>
+
+                  <div
+                    className={
+                      currentPageImageUrl || pages.length > 0
+                        ? "md:col-span-6"
+                        : "md:col-span-12"
+                    }
+                  >
                     <p className="text-[11px] font-semibold text-[#6B6560] mb-1.5">
-                      Submitted Copy (highlighted for selected finding)
+                      Submitted / Extracted Copy (highlighted for selected finding)
                     </p>
-                    <div className="bg-[#FAF8F6] border border-[#E7E1DA] rounded-2xl p-4">
+                    <div className="bg-[#FAF8F6] border border-[#E7E1DA] rounded-2xl p-4 max-h-[380px] overflow-y-auto">
                       {renderHighlightedCopy()}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Evidence Filter Bar */}
+              {/* Domain + Evidence + Severity Filter Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      { key: "all", label: `All (${totalFindings})` },
+                      { key: "text", label: `Text (${textFindingsCount})` },
+                      { key: "visual", label: `Visual (${visualFindingsCount})` },
+                    ] as const
+                  ).map((dom) => (
+                    <button
+                      key={dom.key}
+                      type="button"
+                      onClick={() => setDomainFilter(dom.key)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                        domainFilter === dom.key
+                          ? "bg-[#141414] text-white border-[#141414]"
+                          : "bg-white text-[#141414] border-[#E7E1DA] hover:bg-[#F3EDE8]"
+                      }`}
+                    >
+                      {dom.label}
+                    </button>
+                  ))}
+
+                  <span className="w-px h-4 bg-[#DED6CE] mx-1" />
+
                   {(["All", "conflicting", "unverified", "supported"] as const).map((ev) => (
                     <button
                       key={ev}
@@ -425,7 +722,22 @@ function ReviewStudioInner() {
                         : "Supported"}
                     </button>
                   ))}
+
+                  <select
+                    aria-label="Filter by severity"
+                    value={severityFilter}
+                    onChange={(e) =>
+                      setSeverityFilter(e.target.value as "All" | FindingSeverity)
+                    }
+                    className="px-3 py-1.5 rounded-full bg-white border border-[#E7E1DA] text-xs font-medium text-[#524E4A]"
+                  >
+                    <option value="All">All Severities</option>
+                    <option value="high">High Severity</option>
+                    <option value="medium">Medium Severity</option>
+                    <option value="low">Low Severity</option>
+                  </select>
                 </div>
+
                 <button
                   type="button"
                   onClick={() => setManualOpen(true)}
@@ -436,7 +748,7 @@ function ReviewStudioInner() {
                 </button>
               </div>
 
-              {/* Findings List (Reference 2 Card Aesthetics) */}
+              {/* Findings List */}
               {filteredFindings.length === 0 ? (
                 <div className="bg-white border border-[#E7E1DA] rounded-[22px] p-8 text-center">
                   <p className="text-sm font-semibold text-[#141414]">
@@ -445,8 +757,10 @@ function ReviewStudioInner() {
                   <button
                     type="button"
                     onClick={() => {
+                      setDomainFilter("all");
                       setCategoryFilter("All");
                       setEvidenceFilter("All");
+                      setSeverityFilter("All");
                       setSearchTerm("");
                     }}
                     className="mt-3 px-4 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold"
@@ -459,15 +773,17 @@ function ReviewStudioInner() {
                   {filteredFindings.map((finding) => {
                     const isSelected = selectedFinding?.id === finding.id;
                     const evMeta = EVIDENCE_STYLE[finding.evidenceStatus];
+                    const visual = isVisualFinding(finding);
                     return (
                       <div
                         key={finding.id}
-                        onClick={() => setSelectedFindingId(finding.id)}
+                        onClick={() => handleSelectFinding(finding)}
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
-                            setSelectedFindingId(finding.id);
+                            e.preventDefault();
+                            handleSelectFinding(finding);
                           }
                         }}
                         className={`cursor-pointer bg-white rounded-[22px] transition-all border ${
@@ -479,6 +795,15 @@ function ReviewStudioInner() {
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                           <div className="space-y-1.5 min-w-0">
                             <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                  visual
+                                    ? "bg-[#CDEEE0] text-[#14532D]"
+                                    : "bg-[#E2DBFB] text-[#2B2927]"
+                                }`}
+                              >
+                                {visual ? "Visual" : "Text"}
+                              </span>
                               <span className="font-semibold text-[#141414]">
                                 {finding.category}
                               </span>
@@ -493,6 +818,19 @@ function ReviewStudioInner() {
                                 {renderEvidenceIcon(finding.evidenceStatus)}
                                 {evMeta.label}
                               </span>
+                              {finding.location?.pageNumber && (
+                                <>
+                                  <span className="text-[#8E8780]">·</span>
+                                  <span className="text-[#524E4A] font-medium">
+                                    Page {finding.location.pageNumber}
+                                  </span>
+                                </>
+                              )}
+                              {finding.requiresHumanReview && (
+                                <span className="px-2 py-0.5 rounded-full bg-[#FAF0C8] text-[#664D03] text-[11px] font-semibold">
+                                  Needs Human Review
+                                </span>
+                              )}
                             </div>
 
                             <h3 className="text-base font-bold text-[#141414]">
@@ -505,7 +843,6 @@ function ReviewStudioInner() {
                             )}
                           </div>
 
-                          {/* Reference 2 Circular Checkmark / Resolve Action */}
                           <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
@@ -531,12 +868,15 @@ function ReviewStudioInner() {
                         {finding.affectedContent && (
                           <div className="mt-3 pt-3 border-t border-[#F0ECE7] flex flex-wrap items-center justify-between gap-2 text-xs">
                             <span className="text-[#6B6560] truncate max-w-full">
-                              Affected:{" "}
+                              Observed:{" "}
                               <span className="font-mono text-[#141414]">
                                 &ldquo;{finding.affectedContent}&rdquo;
                               </span>
                             </span>
                             <span className="text-[#6B6560] text-[11px]">
+                              {finding.confidence !== undefined
+                                ? `Confidence ${Math.round(finding.confidence * 100)}% · `
+                                : ""}
                               {finding.comments.length} comments
                             </span>
                           </div>
@@ -549,10 +889,10 @@ function ReviewStudioInner() {
             </div>
           </div>
 
-          {/* Reference 2 Right-Side Evidence & Corrections Panel */}
+          {/* Right-Side Evidence & Corrections Panel */}
           <aside className="xl:col-span-4 bg-white border border-[#E7E1DA] rounded-[26px] p-5 space-y-4 sticky top-20">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-[#141414]">Evidence & Corrections</h2>
+              <h2 className="text-lg font-bold text-[#141414]">Evidence &amp; Corrections</h2>
               {selectedFinding && (
                 <span className="text-xs font-medium text-[#6B6560]">
                   {selectedFinding.resolved ? "Resolved" : "Action Needed"}
@@ -566,38 +906,64 @@ function ReviewStudioInner() {
               </p>
             ) : (
               <div className="space-y-3.5">
-                {/* Card 1: Evidence State & Detected vs Expected (Pastel Card) */}
+                {/* Card 1: Evidence State & Detected vs Expected */}
                 <div
                   className={`${EVIDENCE_STYLE[selectedFinding.evidenceStatus].cardBg} border ${
                     EVIDENCE_STYLE[selectedFinding.evidenceStatus].cardBorder
                   } rounded-2xl p-4 space-y-2.5`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#141414]">
                       {renderEvidenceIcon(selectedFinding.evidenceStatus)}
                       {EVIDENCE_STYLE[selectedFinding.evidenceStatus].label}
                     </span>
-                    <span className="text-[11px] font-medium text-[#3F3B37]">
-                      {selectedFinding.category}
-                    </span>
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#3F3B37]">
+                      {selectedFinding.confidence !== undefined && (
+                        <span>{Math.round(selectedFinding.confidence * 100)}% conf.</span>
+                      )}
+                      {selectedFinding.detector && (
+                        <span className="px-2 py-0.5 rounded-full bg-white/70 border border-black/10">
+                          {selectedFinding.detector}
+                        </span>
+                      )}
+                    </div>
                   </div>
+
+                  {selectedFinding.requiresHumanReview && (
+                    <p className="text-[11px] font-semibold text-[#664D03] bg-white/60 rounded-lg px-2.5 py-1.5">
+                      Human inspection required — not a confirmed violation.
+                    </p>
+                  )}
 
                   <div className="text-xs space-y-1.5">
                     <div>
-                      <span className="font-semibold text-[#3F3B37]">Detected: </span>
+                      <span className="font-semibold text-[#3F3B37]">Observed: </span>
                       <span className="text-[#141414]">{selectedFinding.detectedValue}</span>
                     </div>
                     <div>
                       <span className="font-semibold text-[#3F3B37]">Expected: </span>
                       <span className="text-[#141414]">{selectedFinding.expectedValue}</span>
                     </div>
+                    {selectedFinding.location?.pageNumber && (
+                      <div>
+                        <span className="font-semibold text-[#3F3B37]">Creative Location: </span>
+                        <span className="text-[#141414]">
+                          Page {selectedFinding.location.pageNumber}
+                          {selectedFinding.location.boundingBox
+                            ? ` · Box (${Math.round(
+                                selectedFinding.location.boundingBox.x * 100,
+                              )}%, ${Math.round(selectedFinding.location.boundingBox.y * 100)}%)`
+                            : ""}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Card 2: Source Guideline / Approved Fact Reference (Pastel Lavender) */}
+                {/* Card 2: Source Guideline Reference */}
                 <div className="bg-[#E2DBFB]/70 border border-[#D3CAEE] rounded-2xl p-4 space-y-1.5">
                   <p className="text-[11px] font-bold text-[#141414]">
-                    Source Guideline Reference
+                    Source Guideline Reference {selectedFinding.ruleId ? `· ${selectedFinding.ruleId}` : ""}
                   </p>
                   <p className="text-xs font-semibold text-[#2B2927]">
                     {selectedFinding.sourceReference}
@@ -607,14 +973,14 @@ function ReviewStudioInner() {
                   </p>
                 </div>
 
-                {/* Card 3: Editable Correction Workflow (Pastel Yellow / Mint) */}
+                {/* Card 3: Editable Correction Workflow */}
                 <div className="bg-[#FAF8F6] border border-[#E7E1DA] rounded-2xl p-4 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <label
                       htmlFor="correction-editor"
                       className="text-xs font-bold text-[#141414]"
                     >
-                      Recommended Replacement Copy
+                      Recommended Replacement / Action
                     </label>
                     <button
                       type="button"
@@ -644,7 +1010,7 @@ function ReviewStudioInner() {
                       }
                       className="flex-1 py-2 px-3 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold transition-colors"
                     >
-                      Accept & Apply Fix
+                      Accept &amp; Apply Fix
                     </button>
                     <button
                       type="button"
@@ -697,6 +1063,7 @@ function ReviewStudioInner() {
                   >
                     <input
                       type="text"
+                      aria-label="Add governance comment"
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
                       placeholder="Add governance note..."
@@ -717,7 +1084,7 @@ function ReviewStudioInner() {
         </div>
       </div>
 
-      {/* Reference 2 Signature Floating Dark Bottom Contextual Toolbar */}
+      {/* Bottom Floating Dark Contextual Toolbar */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 hidden md:flex items-center gap-2 bg-[#141414] px-3 py-2 rounded-full shadow-xl border border-white/10">
         {CATEGORY_TOOLBAR.slice(1).map((item) => {
           const Icon = item.icon;
@@ -727,9 +1094,8 @@ function ReviewStudioInner() {
               key={item.category}
               type="button"
               title={`Filter ${item.category}`}
-              onClick={() =>
-                setCategoryFilter(active ? "All" : item.category)
-              }
+              aria-label={`Filter ${item.category}`}
+              onClick={() => setCategoryFilter(active ? "All" : item.category)}
               className={`w-9 h-9 rounded-full ${item.pastelBg} text-[#141414] flex items-center justify-center transition-transform hover:scale-105 ${
                 active ? "ring-2 ring-white" : ""
               }`}
@@ -741,7 +1107,16 @@ function ReviewStudioInner() {
         <span className="w-px h-5 bg-white/20 mx-1" />
         <button
           type="button"
+          title="Review Audit History"
+          onClick={() => setAuditOpen(true)}
+          className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
+        >
+          <History className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           title="Add manual finding"
+          aria-label="Add manual finding"
           onClick={() => setManualOpen(true)}
           className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
         >
@@ -788,6 +1163,7 @@ function ReviewStudioInner() {
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <select
+                  aria-label="Manual finding category"
                   value={manualCategory}
                   onChange={(e) => setManualCategory(e.target.value as FindingCategory)}
                   className="px-2.5 py-2 rounded-xl border border-[#E7E1DA] text-xs bg-[#FAF8F6]"
@@ -799,6 +1175,7 @@ function ReviewStudioInner() {
                   <option value="Legal & Usage">Legal</option>
                 </select>
                 <select
+                  aria-label="Manual finding severity"
                   value={manualSeverity}
                   onChange={(e) => setManualSeverity(e.target.value as FindingSeverity)}
                   className="px-2.5 py-2 rounded-xl border border-[#E7E1DA] text-xs bg-[#FAF8F6]"
@@ -808,6 +1185,7 @@ function ReviewStudioInner() {
                   <option value="low">Low</option>
                 </select>
                 <select
+                  aria-label="Manual finding evidence status"
                   value={manualEvidence}
                   onChange={(e) => setManualEvidence(e.target.value as EvidenceStatus)}
                   className="px-2.5 py-2 rounded-xl border border-[#E7E1DA] text-xs bg-[#FAF8F6]"
@@ -861,6 +1239,12 @@ function ReviewStudioInner() {
           </div>
         </div>
       )}
+      {/* Review Audit History Drawer */}
+      <ReviewAuditDrawer
+        review={activeReview}
+        isOpen={auditOpen}
+        onClose={() => setAuditOpen(false)}
+      />
     </div>
   );
 }

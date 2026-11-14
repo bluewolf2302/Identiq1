@@ -5,6 +5,8 @@ import {
   AnalysisResponseSchema,
   EvidenceReferenceSchema,
   FindingLocationSchema,
+  OcrBlockContractSchema,
+  VisualAnalysisSummarySchema,
   type AnalysisRequest,
   type EvidenceReference,
   type FindingSeverity,
@@ -29,14 +31,21 @@ const FrontendAnalysisRequestSchema = z
       "Landing Page",
     ]),
     guidelineCollection: z.string().trim().min(1),
-    textContent: z.string().trim().min(1),
+    textContent: z.string().trim().default(""),
     submissionId: z.string().trim().min(1).optional(),
     assetName: z.string().trim().min(1).optional(),
     assetBase64: z.string().min(1).optional(),
     assetMimeType: z.string().trim().min(1).optional(),
     knowledgeSummary: z.array(z.string()).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) => data.textContent.length > 0 || Boolean(data.assetBase64 && data.assetName),
+    {
+      message: "Either textContent or an uploaded creative asset must be provided.",
+      path: ["textContent"],
+    },
+  );
 
 export class UnsupportedDemoBrandError extends Error {
   constructor(guidelineCollection: string) {
@@ -100,13 +109,25 @@ export function adaptFrontendRequest(
     throw new UnsupportedDemoBrandError(frontend.guidelineCollection);
   }
 
+  const submissionId =
+    frontend.submissionId ??
+    (options.createSubmissionId ?? createSubmissionId)();
+
   const backendRequest = {
-    submissionId:
-      frontend.submissionId ??
-      (options.createSubmissionId ?? createSubmissionId)(),
+    submissionId,
     brandId,
     campaignName: frontend.title,
     contentText: frontend.textContent,
+    ...(frontend.assetBase64 && frontend.assetName
+      ? {
+          creativePayload: {
+            assetId: `${submissionId}-creative`,
+            fileName: frontend.assetName,
+            ...(frontend.assetMimeType ? { mimeType: frontend.assetMimeType } : {}),
+            base64Data: frontend.assetBase64,
+          },
+        }
+      : {}),
   };
   const parsed = AnalysisRequestSchema.safeParse(backendRequest);
   if (!parsed.success) {
@@ -202,6 +223,17 @@ function mapFinding(
       .map((reference) => reference.versionId)
       .filter((versionId): versionId is string => versionId !== undefined),
     location: finding.location,
+    ...(finding.confidence !== undefined ? { confidence: finding.confidence } : {}),
+    ...(finding.detector ? { detector: finding.detector } : {}),
+    ...(finding.ruleId !== undefined ? { ruleId: finding.ruleId } : {}),
+    requiresHumanReview:
+      finding.status === "NEEDS_HUMAN_REVIEW" || finding.status === "UNVERIFIED",
+    sourceDomain:
+      finding.category === "VISUAL_COMPLIANCE" ||
+      Boolean(finding.location?.boundingBox) ||
+      finding.analysisProvider.startsWith("visual-")
+        ? "visual"
+        : "text",
   };
 }
 
@@ -228,7 +260,7 @@ export function adaptBackendResponse(
   );
   const summary =
     parsed.data.analysisStatus === "PARTIAL"
-      ? "Analysis completed with incomplete approved brand context."
+      ? "Analysis completed with partial visual/brand context coverage."
       : findings.length === 0
         ? "No governance findings were identified."
         : `${findings.length} governance finding${findings.length === 1 ? "" : "s"} identified.`;
@@ -242,6 +274,8 @@ export function adaptBackendResponse(
     providerUsed: parsed.data.providerUsed,
     summary,
     findings,
+    ...(parsed.data.ocrBlocks ? { ocrBlocks: parsed.data.ocrBlocks } : {}),
+    ...(parsed.data.visualSummary ? { visualSummary: parsed.data.visualSummary } : {}),
   };
 }
 
@@ -280,6 +314,18 @@ const FrontendReviewFindingSchema: z.ZodType<ReviewFinding> = z
     evidenceReferences: z.array(EvidenceReferenceSchema).optional(),
     sourceVersionIds: z.array(z.string().min(1)).optional(),
     location: FindingLocationSchema.optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    detector: z.enum([
+      "ocr",
+      "deterministic",
+      "image_matching",
+      "gemini_vision",
+      "openrouter_vision",
+      "ai_semantic",
+    ]).optional(),
+    ruleId: z.string().min(1).nullable().optional(),
+    requiresHumanReview: z.boolean().optional(),
+    sourceDomain: z.enum(["text", "visual"]).optional(),
   })
   .strict();
 
@@ -292,7 +338,9 @@ const FrontendAnalysisResponseSchema: z.ZodType<AnalysisResponsePayload> = z.obj
   analysisRunId: z.string().min(1),
   analysisStatus: z.enum(["COMPLETED", "PARTIAL", "FAILED"]),
   fallbackUsed: z.boolean(),
-});
+  ocrBlocks: z.array(OcrBlockContractSchema).optional(),
+  visualSummary: VisualAnalysisSummarySchema.optional(),
+}).strict();
 
 export function parseAnalysisResponsePayload(
   input: unknown,

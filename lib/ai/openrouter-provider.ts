@@ -109,7 +109,7 @@ export class OpenRouterProvider implements AiProvider {
       ...config,
       apiKey: config.apiKey.trim(),
       model: config.model.trim(),
-      timeoutMs: config.timeoutMs ?? 30_000,
+      timeoutMs: config.timeoutMs ?? 18_000,
       fetcher: config.fetcher ?? fetch,
     };
   }
