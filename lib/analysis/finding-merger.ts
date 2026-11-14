@@ -40,9 +40,9 @@ export function areDuplicateFindings(
     return false;
   }
 
-  if (hasSameLocation(deterministic, semantic)) return true;
-
   const sameEvidence =
+    deterministic.evidenceReferences.length > 0 &&
+    semantic.evidenceReferences.length > 0 &&
     evidenceSignature(deterministic) === evidenceSignature(semantic);
   const sameDetectedText =
     Boolean(deterministic.detectedValue && semantic.detectedValue) &&
@@ -52,7 +52,11 @@ export function areDuplicateFindings(
     deterministic.issue,
     semantic.issue,
   );
-  return sameEvidence && (sameDetectedText || issueSimilarity >= 0.75);
+  const meaningfulIssueMatch = issueSimilarity >= 0.75;
+  return (
+    meaningfulIssueMatch &&
+    (sameEvidence || sameDetectedText || hasSameLocation(deterministic, semantic))
+  );
 }
 
 export function mergeFindings(
@@ -98,6 +102,7 @@ function sharedIssueTokenRatio(left: string, right: string): number {
   const leftTokens = new Set(normalize(left).split(/\W+/).filter(Boolean));
   const rightTokens = new Set(normalize(right).split(/\W+/).filter(Boolean));
   if (!leftTokens.size || !rightTokens.size) return 0;
-  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
-  return shared / Math.min(leftTokens.size, rightTokens.size);
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token));
+  if (shared.length < 2) return 0;
+  return shared.length / Math.min(leftTokens.size, rightTokens.size);
 }

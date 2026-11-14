@@ -149,16 +149,7 @@ export function parseAndValidateCandidates(
 
   const sourceIds = new Set(parsedContext.data.sourceIds);
   const sourceMetadata = parseSourceMetadata(parsedContext.data);
-  const approvedContextValues = [
-    parsedContext.data.brandProfile,
-    ...parsedContext.data.approvedGuidelines,
-    ...parsedContext.data.approvedProductFacts,
-    ...parsedContext.data.approvedPromotionalClaims,
-    ...parsedContext.data.preferredTerminology,
-    ...parsedContext.data.prohibitedTerminology,
-    ...parsedContext.data.approvedColours,
-    ...parsedContext.data.approvedVisualAssetReferences,
-  ];
+  const sourceValues = collectSourceEvidence(parsedContext.data);
   return parsed.data.findings.map((candidate, index) => {
     for (const evidence of candidate.evidenceReferences) {
       if (!sourceIds.has(evidence.sourceId)) {
@@ -179,9 +170,13 @@ export function parseAndValidateCandidates(
       }
       if (
         evidence.excerpt &&
-        !approvedContextValues.some((value) =>
-          normalizeEvidenceText(value).includes(normalizeEvidenceText(evidence.excerpt!)),
-        )
+        !sourceValues
+          .get(evidence.sourceId)
+          ?.some((value) =>
+            normalizeEvidenceText(value).includes(
+              normalizeEvidenceText(evidence.excerpt!),
+            ),
+          )
       ) {
         throw new AiEvidenceValidationError(
           `AI finding ${index} supplied an unsupported evidence excerpt.`,
@@ -214,6 +209,7 @@ function validateLocation(
   if (
     location.startOffset !== undefined &&
     location.endOffset !== undefined &&
+    location.startOffset >= 0 &&
     location.endOffset <= content.length &&
     location.startOffset <= location.endOffset &&
     (!location.quote ||
@@ -230,12 +226,14 @@ function validateLocation(
     location.endOffset === undefined
   ) {
     const idx = content.indexOf(location.quote);
-    if (idx !== -1) {
+    const lastIdx = content.lastIndexOf(location.quote);
+    if (idx !== -1 && idx === lastIdx) {
       return {
         startOffset: idx,
         endOffset: idx + location.quote.length,
       };
     }
+
   }
   return undefined;
 }
@@ -258,4 +256,30 @@ function parseSourceMetadata(
     }
   }
   return metadata;
+}
+
+function collectSourceEvidence(
+  context: BrandContext,
+): Map<string, string[]> {
+  const evidence = new Map<string, string[]>();
+  const sourceLabelPattern =
+    /\[Source:\s*(.+?)\s+\(([^;()[\]]+);\s*([^;()[\]]+)/i;
+  const values = [
+    ...context.approvedGuidelines,
+    ...context.approvedProductFacts,
+    ...context.approvedPromotionalClaims,
+    ...context.preferredTerminology,
+    ...context.prohibitedTerminology,
+    ...context.approvedColours,
+    ...context.approvedVisualAssetReferences,
+  ];
+
+  for (const value of values) {
+    const match = value.match(sourceLabelPattern);
+    if (!match) continue;
+    const existing = evidence.get(match[2].trim()) ?? [];
+    existing.push(value);
+    evidence.set(match[2].trim(), existing);
+  }
+  return evidence;
 }

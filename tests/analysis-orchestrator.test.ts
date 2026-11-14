@@ -14,6 +14,7 @@ import {
   BrandNotFoundError,
   type BrandContextWarning,
 } from "../lib/brand-context";
+import { mergeFindings } from "../lib/analysis/finding-merger";
 
 const context: BrandContext = {
   brandProfile: "Example brand",
@@ -158,6 +159,45 @@ test("marks valid incomplete brand context as partial", async () => {
 test("keeps distinct findings in the same category and removes exact duplicates", async () => {
   const duplicateDeterministic = finding("det-1", "Same issue", "deterministic", {
     location: { startOffset: 1, endOffset: 5 },
+  });
+
+  test("does not merge empty-evidence or distinct same-location findings", () => {
+    const base = finding("det-1", "Product name is incorrect", "deterministic", {
+      evidenceReferences: [],
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    const different = finding("ai-1", "Pack size is incorrect", "fake-ai", {
+      evidenceReferences: [],
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    assert.deepEqual(mergeFindings([base], [different]).map((item) => item.findingId), [
+      "det-1",
+      "ai-1",
+    ]);
+  });
+
+  test("merges genuinely duplicate wording while preserving distinct source issues", () => {
+    const deterministic = finding("det-1", "Product name is incorrect", "deterministic", {
+      location: { startOffset: 4, endOffset: 10 },
+    });
+    const semanticDuplicate = finding(
+      "ai-1",
+      "Incorrect product name",
+      "fake-ai",
+      { location: { startOffset: 4, endOffset: 10 } },
+    );
+    const semanticDistinct = finding(
+      "ai-2",
+      "Product price conflicts with approved value",
+      "fake-ai",
+      { location: { startOffset: 4, endOffset: 10 } },
+    );
+    assert.deepEqual(
+      mergeFindings([deterministic], [semanticDuplicate, semanticDistinct]).map(
+        (item) => item.findingId,
+      ),
+      ["det-1", "ai-2"],
+    );
   });
   const duplicateAi = finding("ai-duplicate", " same   issue ", "fake-ai", {
     location: { startOffset: 1, endOffset: 5 },

@@ -18,7 +18,7 @@ import { parseAndValidateCandidates } from "../lib/ai/response-validator";
 
 const context: BrandContext = BrandContextSchema.parse({
   brandProfile: "A clear, evidence-led brand.",
-  approvedGuidelines: ["Use a helpful tone."],
+  approvedGuidelines: ["Use a helpful tone. [Source: Handbook (handbook-1; v1)]"],
   approvedProductFacts: ["PRODUCT_PRICE: $99 [Source: Handbook (handbook-1; v1)]"],
   approvedPromotionalClaims: [],
   preferredTerminology: [],
@@ -67,10 +67,10 @@ const successfulProviderFetch = async (url: string): Promise<Response> =>
       );
 
 test("validates source metadata, excerpts, and exact finding locations", () => {
-      const findings = parseAndValidateCandidates(candidate, context, "Stop now");
-      assert.deepEqual(findings[0]?.location, { startOffset: 0, endOffset: 4 });
+  const findings = parseAndValidateCandidates(candidate, context, "Stop now");
+  assert.deepEqual(findings[0]?.location, { startOffset: 0, endOffset: 4 });
 
-      assert.throws(
+  assert.throws(
         () =>
           parseAndValidateCandidates(
             {
@@ -91,7 +91,7 @@ test("validates source metadata, excerpts, and exact finding locations", () => {
           ),
         AiEvidenceValidationError,
       );
-      assert.throws(
+  assert.throws(
         () =>
           parseAndValidateCandidates(
             {
@@ -112,7 +112,7 @@ test("validates source metadata, excerpts, and exact finding locations", () => {
           ),
         AiEvidenceValidationError,
       );
-      const invalidLocation = parseAndValidateCandidates(
+  const invalidLocation = parseAndValidateCandidates(
         {
           findings: [
             {
@@ -124,7 +124,59 @@ test("validates source metadata, excerpts, and exact finding locations", () => {
         context,
         "Stop now",
       );
-      assert.equal(invalidLocation[0]?.location, undefined);
+  assert.equal(invalidLocation[0]?.location, undefined);
+
+  const repeatedQuote = parseAndValidateCandidates(
+    {
+      findings: [
+        {
+          ...candidate.findings[0],
+          location: { quote: "Stop" },
+        },
+      ],
+    },
+    context,
+    "Stop now. Stop later.",
+  );
+  assert.equal(repeatedQuote[0]?.location, undefined);
+});
+
+test("rejects an excerpt attributed to the wrong approved source", () => {
+  const twoSourceContext = BrandContextSchema.parse({
+    ...context,
+    approvedGuidelines: [
+      "Use a helpful tone. [Source: Handbook (handbook-1; v1)]",
+      "Use the approved blue mark. [Source: Asset register (asset-1; v2)]",
+    ],
+    sourceIds: ["handbook-1", "asset-1"],
+    versionId: "v1, v2",
+    sourceVersionInformation:
+      "Handbook (handbook-1; v1) | Asset register (asset-1; v2)",
+  });
+
+  assert.throws(
+    () =>
+      parseAndValidateCandidates(
+        {
+          findings: [
+            {
+              ...candidate.findings[0],
+              evidenceReferences: [
+                {
+                  ...candidate.findings[0].evidenceReferences[0],
+                  sourceId: "handbook-1",
+                  sourceTitle: "Handbook",
+                  excerpt: "Use the approved blue mark.",
+                },
+              ],
+            },
+          ],
+        },
+        twoSourceContext,
+        "Stop now",
+      ),
+    AiEvidenceValidationError,
+  );
 });
 
 function mockProvider(
