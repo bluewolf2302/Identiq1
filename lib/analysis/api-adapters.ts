@@ -62,7 +62,7 @@ export class InvalidBackendAnalysisResponseError extends Error {
 }
 
 const DEMO_BRAND_BY_GUIDELINE_COLLECTION: Readonly<Record<string, string>> = {
-  "Teralune Brand Identity & AI Guidelines v1.0": "demo-brand-teralune",
+  "Teralune Brand Identity & AI Guidelines v1.0": "035a1c41-9870-4436-bec6-330142610118",
 };
 
 function createSubmissionId(): string {
