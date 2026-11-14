@@ -9,6 +9,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  FileBarChart,
   FileText,
   Filter,
   Layers,
@@ -139,7 +140,14 @@ export default function DashboardPage() {
               </h1>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
+              <Link
+                href="/reports"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#FAF8F6] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs"
+              >
+                <FileBarChart className="w-4 h-4 text-[#736B63]" />
+                Compliance Reports
+              </Link>
               <Link
                 href="/reviews/new"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs"

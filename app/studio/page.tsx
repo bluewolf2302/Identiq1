@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -9,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileBarChart,
   FileWarning,
   HelpCircle,
   History,
@@ -407,6 +409,15 @@ function ReviewStudioInner() {
 
                 {/* Search + 3 KPI Counter Tiles */}
                 <div className="flex flex-wrap items-center gap-2.5">
+                  <Link
+                    href={`/reports?tab=review&reviewId=${activeReview.id}`}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-[#E7E1DA] text-xs font-semibold text-[#141414] hover:bg-[#FAF8F6] transition-colors shadow-2xs whitespace-nowrap"
+                    title="View formal compliance dossier"
+                  >
+                    <FileBarChart className="w-3.5 h-3.5 text-[#524E4A]" />
+                    Dossier
+                  </Link>
+
                   <button
                     type="button"
                     onClick={() => setAuditOpen(true)}
