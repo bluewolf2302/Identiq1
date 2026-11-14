@@ -1,8 +1,8 @@
 # Next.js governance API integration
 
-The `/api/analyze` route uses the `AnalysisOrchestrator` for the text-based
-Teralune demo workflow. The legacy `lib/ai/analyzer.ts` is no longer imported
-by the route and is not an active production analysis path.
+The `/api/analyze` route uses the `AnalysisOrchestrator` for text and
+multimodal governance workflows. The legacy `lib/ai/analyzer.ts` is no longer
+imported by the route and is not an active production analysis path.
 
 ## Server-side composition
 
@@ -49,8 +49,10 @@ mapping it to the Phase 1 `AnalysisRequest` contract:
 - Unknown collections are rejected with HTTP 422 rather than guessed.
 - `knowledgeSummary` is intentionally ignored as evidence. Plain UI strings
   are not equivalent to approved structured brand records.
-- Asset data is not converted into uploaded file references because visual
-  analysis and durable asset storage are not implemented in this phase.
+- Asset data is converted into the backend `creativePayload` contract. The
+  visual pipeline validates the file, extracts OCR, runs deterministic visual
+  checks, and optionally invokes vision providers. Durable asset storage is not
+  implemented in this phase.
 - No content platform is inferred from the UI `contentType`.
 
 The frontend creates the submission ID before calling the API and uses the
@@ -140,6 +142,45 @@ retired. The API route does not use its mock fallback.
 - The UI still uses localStorage for reviews and review decisions.
 - The display compliance score is derived at the adapter boundary, not a
   canonical backend score.
-- Phase 2 analyzes submitted text only. Image and PDF attachments remain
-  reference material; multimodal analysis and durable asset ingestion are not
-  enabled.
+- Image and PDF attachments are processed by the local multimodal pipeline.
+  OCR text is combined with manual copy, visual and text findings are merged,
+  and page/bounding-box metadata is preserved. Durable asset storage remains
+  unavailable until the storage owner supplies its repository interface.
+
+## Review Studio and persistence boundary
+
+The Review Studio consumes the adapted response through the shared
+`IdentiqProvider`. Findings retain evidence references, source versions,
+detector, confidence, corrections, human-review state, reviewer decisions,
+comments, and resolution metadata. Reviewer actions create scoped activity
+events and survive refresh through the existing `identiq_workspace_v2`
+localStorage store.
+
+This is local prototype persistence, not shared or authenticated persistence.
+`lib/supabase/client.ts` exposes only an integration status check and a
+placeholder sync function; it does not connect to Supabase. No production
+database, authentication, organization isolation, or storage implementation
+was available in this branch, so the analysis route continues to use
+`MockBrandKnowledgeRepository`.
+
+## Current cross-owner integration status
+
+- **Knowledge Hub:** the UI stores local `KnowledgeEntry` records, while the
+  analysis pipeline consumes structured `BrandKnowledgeRecord` values from the
+  repository interface. There is no adapter from the local UI entries to that
+  repository, so only the explicit Teralune and contract-test fixtures reach
+  analysis.
+- **Database/auth/storage:** no live repository, migration, authentication, or
+  storage interface is present. The local provider remains functional and
+  explicitly must not be treated as a shared database.
+- **Multimodal processing:** the existing image/PDF validation, OCR,
+  deterministic visual checks, vision fallback, partial-status handling, and
+  page/bounding-box contracts are active and unchanged.
+- **Dashboard/activity:** activity metadata includes finding decisions, while
+  Review Studio uses the existing audit-history builder for review-scoped
+  decisions, comments, corrections, evidence, and resolution snapshots.
+
+Source versions are carried in each finding's evidence references and are not
+replaced when a later guideline version is introduced. Historical reviews retain
+their returned references in local state; a production repository must preserve
+the same immutable evidence fields when its interface becomes available.

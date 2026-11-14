@@ -227,6 +227,54 @@ test("preserves evidence and version references", async () => {
       },
     ],
   });
+
+  test("does not merge findings backed by different source versions", () => {
+    const left = finding("det-1", "Incorrect approved product price", "deterministic", {
+      detectedValue: "$20",
+      evidenceReferences: [
+        {
+          sourceId: "guide-1",
+          sourceType: "brand-guide",
+          sourceTitle: "Guide",
+          versionId: "v1",
+        },
+      ],
+    });
+
+    test("merges a matching visual finding with its text counterpart", () => {
+      const textFinding = finding("det-1", "Incorrect logo usage", "deterministic", {
+        category: "VISUAL_COMPLIANCE",
+        detector: "deterministic",
+        location: { field: "visual:logo", pageNumber: 1 },
+      });
+      const visualFinding = finding("visual-1", "Incorrect logo usage", "visual-gemini", {
+        category: "VISUAL_COMPLIANCE",
+        detector: "gemini_vision",
+        location: { field: "visual:logo", pageNumber: 1 },
+      });
+
+      assert.deepEqual(
+        mergeFindings([textFinding], [], [visualFinding]).map((item) => item.findingId),
+        ["det-1"],
+      );
+    });
+    const right = finding("ai-1", "Incorrect approved product price", "fake-ai", {
+      detectedValue: "$20",
+      evidenceReferences: [
+        {
+          sourceId: "guide-1",
+          sourceType: "brand-guide",
+          sourceTitle: "Guide",
+          versionId: "v2",
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      mergeFindings([left], [right]).map((item) => item.findingId),
+      ["det-1", "ai-1"],
+    );
+  });
   const { orchestrator } = createOrchestrator({ semanticFindings: [semantic] });
   const response = await orchestrator.analyze(request);
   assert.equal(response.findings[0]?.evidenceReferences[0]?.versionId, "v1");

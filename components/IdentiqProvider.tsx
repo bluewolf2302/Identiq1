@@ -9,6 +9,7 @@ import {
   ReviewStatus,
   ReviewSubmission,
 } from "@/lib/types";
+import type { ReviewDecision } from "@/lib/contracts/workflow";
 import {
   INITIAL_ACTIVITY,
   INITIAL_ASSETS,
@@ -53,6 +54,12 @@ interface IdentiqContextValue {
     applyToCopy?: boolean
   ) => void;
   addFindingComment: (reviewId: string, findingId: string, text: string) => void;
+  updateFindingDecision: (
+    reviewId: string,
+    findingId: string,
+    decision: ReviewDecision,
+    reason?: string,
+  ) => void;
   addManualFinding: (reviewId: string, finding: ReviewFinding) => void;
   upsertKnowledgeEntry: (entry: KnowledgeEntry) => void;
   deleteKnowledgeEntry: (id: string) => void;
@@ -193,6 +200,17 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     reviewerNotes?: string
   ) => {
     const targetReview = reviews.find((r) => r.id === reviewId);
+    if (!targetReview || targetReview.status === status) return;
+    const allowedTransitions: Record<ReviewStatus, ReviewStatus[]> = {
+      "Pending Approval": ["In Review", "Changes Requested", "Approved"],
+      "In Review": ["Changes Requested", "Approved"],
+      "Changes Requested": ["In Review", "Approved"],
+      Approved: ["In Review"],
+    };
+    if (!allowedTransitions[targetReview.status].includes(status)) {
+      notify(`Cannot move a ${targetReview.status} review to ${status}`, "info");
+      return;
+    }
     setReviews((prev) =>
       prev.map((r) =>
         r.id === reviewId
@@ -224,6 +242,59 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       });
     }
     notify(`Status updated to ${status}`);
+  };
+
+  const updateFindingDecision = (
+    reviewId: string,
+    findingId: string,
+    decision: ReviewDecision,
+    reason?: string,
+  ) => {
+    const targetReview = reviews.find((r) => r.id === reviewId);
+    const targetFinding = targetReview?.findings.find((f) => f.id === findingId);
+    if (!targetReview || !targetFinding) return;
+    if (
+      targetFinding.reviewDecision === decision &&
+      (!reason?.trim() || targetFinding.reviewDecisionReason === reason.trim())
+    ) {
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    const nextDecision = {
+      reviewDecision: decision,
+      ...(reason?.trim() ? { reviewDecisionReason: reason.trim() } : {}),
+      reviewDecisionAt: timestamp,
+      reviewDecisionBy: settings.reviewerName,
+      ...(decision === "REQUEST_CHANGES" ? { requiresHumanReview: true } : {}),
+    };
+    setReviews((prev) =>
+      prev.map((review) =>
+        review.id !== reviewId
+          ? review
+          : {
+              ...review,
+              findings: review.findings.map((finding) =>
+                finding.id === findingId ? { ...finding, ...nextDecision } : finding,
+              ),
+            },
+      ),
+    );
+    logActivity({
+      reviewId,
+      actor: settings.reviewerName,
+      action: `${decision.toLowerCase()} finding "${targetFinding.title}"${
+        reason?.trim() ? `: ${reason.trim()}` : ""
+      } in`,
+      target: targetReview.title,
+      type: "finding_decision",
+    });
+    notify(
+      decision === "APPROVE"
+        ? "Finding accepted"
+        : decision === "REJECT"
+          ? "Finding rejected"
+          : "Finding marked for human review",
+    );
   };
 
   const toggleFindingResolved = (reviewId: string, findingId: string) => {
@@ -477,6 +548,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         toggleFindingResolved,
         updateFindingCorrection,
         addFindingComment,
+        updateFindingDecision,
         addManualFinding,
         upsertKnowledgeEntry,
         deleteKnowledgeEntry,

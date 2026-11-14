@@ -326,6 +326,10 @@ const FrontendReviewFindingSchema: z.ZodType<ReviewFinding> = z
     ruleId: z.string().min(1).nullable().optional(),
     requiresHumanReview: z.boolean().optional(),
     sourceDomain: z.enum(["text", "visual"]).optional(),
+    reviewDecision: z.enum(["APPROVE", "REQUEST_CHANGES", "REJECT"]).optional(),
+    reviewDecisionReason: z.string().min(1).optional(),
+    reviewDecisionAt: z.string().min(1).optional(),
+    reviewDecisionBy: z.string().min(1).optional(),
   })
   .strict();
 

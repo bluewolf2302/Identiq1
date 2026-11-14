@@ -141,6 +141,84 @@ test("validates source metadata, excerpts, and exact finding locations", () => {
   assert.equal(repeatedQuote[0]?.location, undefined);
 });
 
+test("accepts only canonical AI category, severity, and status values", () => {
+  for (const category of [
+    "TONE_AND_TERMINOLOGY",
+    "FACT_VERIFICATION",
+    "PROMOTIONAL_CLAIM",
+    "VISUAL_COMPLIANCE",
+    "ACCESSIBILITY",
+  ]) {
+    for (const severity of ["HIGH", "MEDIUM", "LOW", "INFO"]) {
+      for (const status of [
+        "SUPPORTED",
+        "CONFLICTING",
+        "UNVERIFIED",
+        "NEEDS_HUMAN_REVIEW",
+      ]) {
+        assert.doesNotThrow(() =>
+          parseAndValidateCandidates(
+            {
+              findings: [
+                {
+                  ...candidate.findings[0],
+                  category,
+                  severity,
+                  status,
+                },
+              ],
+            },
+            context,
+            "Stop now",
+          ),
+        );
+      }
+    }
+  }
+});
+
+test("rejects invalid AI category, severity, status, and aliases", () => {
+  for (const field of ["category", "severity", "status"] as const) {
+    for (const value of ["UNSUPPORTED", "PASS", "TRUE", "VIOLATION"]) {
+      assert.throws(
+        () =>
+          parseAndValidateCandidates(
+            {
+              findings: [
+                {
+                  ...candidate.findings[0],
+                  [field]: value,
+                },
+              ],
+            },
+            context,
+            "Stop now",
+          ),
+        AiCandidateValidationError,
+      );
+    }
+  }
+
+  for (const field of ["category", "severity", "status"] as const) {
+    assert.throws(
+      () =>
+        parseAndValidateCandidates(
+          {
+            findings: [
+              {
+                ...candidate.findings[0],
+                [field]: undefined,
+              },
+            ],
+          },
+          context,
+          "Stop now",
+        ),
+      AiCandidateValidationError,
+    );
+  }
+});
+
 test("rejects an excerpt attributed to the wrong approved source", () => {
   const twoSourceContext = BrandContextSchema.parse({
     ...context,
@@ -152,6 +230,45 @@ test("rejects an excerpt attributed to the wrong approved source", () => {
     versionId: "v1, v2",
     sourceVersionInformation:
       "Handbook (handbook-1; v1) | Asset register (asset-1; v2)",
+  });
+
+  test("downgrades unsupported AI status claims and low-confidence violations", () => {
+    const unsupported = parseAndValidateCandidates(
+      {
+        findings: [
+          {
+            ...candidate.findings[0],
+            status: "SUPPORTED",
+            evidenceReferences: [
+              {
+                ...candidate.findings[0].evidenceReferences[0],
+                excerpt: undefined,
+              },
+            ],
+          },
+        ],
+      },
+      context,
+      "Stop now",
+    );
+    assert.equal(unsupported[0]?.status, "NEEDS_HUMAN_REVIEW");
+
+    const lowConfidence = parseAndValidateCandidates(
+      {
+        findings: [
+          {
+            ...candidate.findings[0],
+            status: "CONFLICTING",
+            severity: "HIGH",
+            confidence: 0.64,
+          },
+        ],
+      },
+      context,
+      "Stop now",
+    );
+    assert.equal(lowConfidence[0]?.status, "NEEDS_HUMAN_REVIEW");
+    assert.equal(lowConfidence[0]?.severity, "HIGH");
   });
 
   assert.throws(

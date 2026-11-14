@@ -14,6 +14,14 @@ function evidenceSignature(finding: ReviewFinding): string {
     .join(";");
 }
 
+function evidenceIdentities(finding: ReviewFinding): Set<string> {
+  return new Set(
+    finding.evidenceReferences.map(
+      (reference) => `${reference.sourceId}|${reference.versionId ?? ""}`,
+    ),
+  );
+}
+
 function hasSameLocation(
   left: ReviewFinding,
   right: ReviewFinding,
@@ -44,6 +52,19 @@ export function areDuplicateFindings(
     deterministic.evidenceReferences.length > 0 &&
     semantic.evidenceReferences.length > 0 &&
     evidenceSignature(deterministic) === evidenceSignature(semantic);
+  const sharedEvidenceIdentity =
+    deterministic.evidenceReferences.length > 0 &&
+    semantic.evidenceReferences.length > 0 &&
+    [...evidenceIdentities(deterministic)].some((identity) =>
+      evidenceIdentities(semantic).has(identity),
+    );
+  const conflictingEvidenceIdentity =
+    deterministic.evidenceReferences.length > 0 &&
+    semantic.evidenceReferences.length > 0 &&
+    !sharedEvidenceIdentity;
+  if (conflictingEvidenceIdentity) {
+    return false;
+  }
   const sameDetectedText =
     Boolean(deterministic.detectedValue && semantic.detectedValue) &&
     normalize(deterministic.detectedValue ?? "") ===
@@ -55,7 +76,9 @@ export function areDuplicateFindings(
   const meaningfulIssueMatch = issueSimilarity >= 0.75;
   return (
     meaningfulIssueMatch &&
-    (sameEvidence || sameDetectedText || hasSameLocation(deterministic, semantic))
+    (sameEvidence ||
+      sameDetectedText ||
+      hasSameLocation(deterministic, semantic))
   );
 }
 

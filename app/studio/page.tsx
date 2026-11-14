@@ -20,7 +20,10 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   Type as TypeIcon,
+  UserCheck,
   X,
   ZoomIn,
   ZoomOut,
@@ -68,6 +71,7 @@ function ReviewStudioInner() {
     toggleFindingResolved,
     updateFindingCorrection,
     addFindingComment,
+    updateFindingDecision,
     addManualFinding,
     updateReviewStatus,
   } = useIdentiq();
@@ -95,6 +99,7 @@ function ReviewStudioInner() {
   const [showOcrBoxes, setShowOcrBoxes] = useState(false);
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, string>>({});
   const [commentText, setCommentText] = useState("");
+  const [decisionReason, setDecisionReason] = useState("");
   const [compactDensity, setCompactDensity] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
 
@@ -183,6 +188,21 @@ function ReviewStudioInner() {
     (f) => f.resolved || f.evidenceStatus === "supported"
   ).length;
   const openOrUnverified = activeReview.findings.filter((f) => !f.resolved).length;
+  const humanReviewCount = activeReview.findings.filter(
+    (f) => f.requiresHumanReview || f.evidenceStatus === "unverified",
+  ).length;
+  const severityCounts = {
+    high: activeReview.findings.filter((f) => f.severity === "high").length,
+    medium: activeReview.findings.filter((f) => f.severity === "medium").length,
+    low: activeReview.findings.filter((f) => f.severity === "low").length,
+  };
+  const decisionCounts = {
+    accepted: activeReview.findings.filter((f) => f.reviewDecision === "APPROVE").length,
+    rejected: activeReview.findings.filter((f) => f.reviewDecision === "REJECT").length,
+    pending: activeReview.findings.filter((f) => !f.reviewDecision).length,
+  };
+  const progressPercent =
+    totalFindings === 0 ? 100 : Math.round(((totalFindings - openOrUnverified) / totalFindings) * 100);
   const statusMeta = REVIEW_STATUS_META[activeReview.status];
 
   const renderHighlightedCopy = () => {
@@ -488,6 +508,52 @@ function ReviewStudioInner() {
                     ))}
                   </div>
                 )}
+
+              <section
+                aria-label="Review overview"
+                className="bg-white border border-[#E7E1DA] rounded-[22px] p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-bold text-[#141414]">Review overview</h2>
+                    <p className="text-[11px] text-[#6B6560]">
+                      {progressPercent}% of findings resolved; reviewer decisions are separate from AI evidence status.
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-[#524E4A]">
+                    {humanReviewCount} need human review
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-[#F0ECE7] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[#8CC9AE] transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                  <div className="rounded-xl bg-[#F6D5DA]/60 p-2">
+                    <span className="block text-[#6B6560]">High severity</span>
+                    <strong>{severityCounts.high}</strong>
+                  </div>
+                  <div className="rounded-xl bg-[#FAF0C8]/70 p-2">
+                    <span className="block text-[#6B6560]">Medium</span>
+                    <strong>{severityCounts.medium}</strong>
+                  </div>
+                  <div className="rounded-xl bg-[#DDF0FA]/70 p-2">
+                    <span className="block text-[#6B6560]">Low</span>
+                    <strong>{severityCounts.low}</strong>
+                  </div>
+                  <div className="rounded-xl bg-[#E2DBFB]/70 p-2">
+                    <span className="block text-[#6B6560]">Pending decisions</span>
+                    <strong>{decisionCounts.pending}</strong>
+                  </div>
+                </div>
+                <p className="text-[11px] text-[#6B6560]">
+                  Decisions: {decisionCounts.accepted} accepted · {decisionCounts.rejected} rejected ·
+                  {" "}{decisionCounts.pending} pending. Score is a directional workspace indicator and does not
+                  confirm unverified findings.
+                </p>
+              </section>
 
               {/* Submitted Creative & Copy Preview Card */}
               <div className="bg-white border border-[#E7E1DA] rounded-[24px] p-5">
@@ -971,6 +1037,81 @@ function ReviewStudioInner() {
                   <p className="text-xs text-[#3F3B37] leading-relaxed">
                     {selectedFinding.recommendation}
                   </p>
+                  {selectedFinding.evidenceReferences &&
+                    selectedFinding.evidenceReferences.length > 0 && (
+                      <div className="pt-2 border-t border-[#D3CAEE] space-y-1.5">
+                        <p className="text-[11px] font-bold text-[#141414]">Approved evidence</p>
+                        {selectedFinding.evidenceReferences.map((reference, index) => (
+                          <div key={`${reference.sourceId}-${reference.versionId ?? "unknown"}-${index}`} className="text-[11px] text-[#3F3B37]">
+                            <p className="font-semibold">
+                              {reference.sourceTitle} · {reference.sourceId}
+                              {reference.versionId ? ` · v${reference.versionId}` : " · version unavailable"}
+                            </p>
+                            {reference.excerpt && (
+                              <p className="mt-0.5 italic">&ldquo;{reference.excerpt}&rdquo;</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+
+                <div className="bg-[#DDF0FA]/60 border border-[#CBE2EF] rounded-2xl p-4 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-[#141414]">Reviewer decision</p>
+                    {selectedFinding.reviewDecision && (
+                      <span className="text-[11px] font-semibold text-[#0C4A6E]">
+                        {selectedFinding.reviewDecision}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#3F3B37]">
+                    Accept or reject the finding independently from the model&apos;s evidence status.
+                  </p>
+                  <input
+                    aria-label="Finding decision reason"
+                    value={decisionReason}
+                    onChange={(e) => setDecisionReason(e.target.value)}
+                    placeholder="Optional decision reason"
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBE2EF] bg-white text-xs text-[#141414] focus:outline-none focus:border-[#141414]"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateFindingDecision(activeReview.id, selectedFinding.id, "APPROVE", decisionReason);
+                        setDecisionReason("");
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#CDEEE0] text-[#14532D] text-xs font-semibold"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" /> Accept
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateFindingDecision(activeReview.id, selectedFinding.id, "REJECT", decisionReason);
+                        setDecisionReason("");
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F6D5DA] text-[#7F1D1D] text-xs font-semibold"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" /> Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateFindingDecision(activeReview.id, selectedFinding.id, "REQUEST_CHANGES", decisionReason);
+                        setDecisionReason("");
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FAF0C8] text-[#664D03] text-xs font-semibold"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" /> Human review
+                    </button>
+                  </div>
+                  {selectedFinding.reviewDecisionReason && (
+                    <p className="text-[11px] text-[#3F3B37]">
+                      Reason: {selectedFinding.reviewDecisionReason}
+                    </p>
+                  )}
                 </div>
 
                 {/* Card 3: Editable Correction Workflow */}

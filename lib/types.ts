@@ -42,6 +42,10 @@ export interface ReviewFinding {
   ruleId?: string | null;
   requiresHumanReview?: boolean;
   sourceDomain?: "text" | "visual";
+  reviewDecision?: import("./contracts/workflow").ReviewDecision;
+  reviewDecisionReason?: string;
+  reviewDecisionAt?: string;
+  reviewDecisionBy?: string;
 }
 
 export type ReviewStatus =
@@ -146,7 +150,8 @@ export interface ActivityEvent {
     | "asset_uploaded"
     | "correction_applied"
     | "comment_added"
-    | "manual_finding_added";
+    | "manual_finding_added"
+    | "finding_decision";
 }
 
 export interface AnalysisRequestPayload {

@@ -4,6 +4,7 @@ import {
   type ReviewFinding as CanonicalReviewFinding,
 } from "../../contracts";
 import type { VisualFinding } from "../types";
+import { applyFindingReliabilityPolicy } from "../../governance/finding-policy";
 
 function mapVisualStatusToCanonical(
   status: VisualFinding["reviewStatus"],
@@ -103,12 +104,15 @@ export function mapVisualFindingsToCanonical(
 ): CanonicalReviewFinding[] {
   return visualFindings.map((vf) => {
     const evidenceReferences: EvidenceReference[] = [];
-    if (vf.sourceReference.sourceId) {
+    if (
+      vf.sourceReference.sourceId &&
+      vf.sourceReference.sourceTitle &&
+      vf.sourceReference.sourceVersion
+    ) {
       evidenceReferences.push({
         sourceId: vf.sourceReference.sourceId,
         sourceType: "approved_brand_knowledge",
-        sourceTitle:
-          vf.sourceReference.sourceTitle || "Approved Brand Visual Guidelines",
+        sourceTitle: vf.sourceReference.sourceTitle,
         ...(vf.sourceReference.excerpt
           ? { excerpt: vf.sourceReference.excerpt }
           : {}),
@@ -149,6 +153,8 @@ export function mapVisualFindingsToCanonical(
       confidence: vf.confidence,
     };
 
-    return ReviewFindingSchema.parse(candidate);
+    return ReviewFindingSchema.parse(
+      applyFindingReliabilityPolicy(candidate, evidenceReferences.length > 0),
+    );
   });
 }

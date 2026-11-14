@@ -3,6 +3,8 @@ import {
   formatActivityTimestamp,
   parseActivityDate,
 } from "./activity-timeline";
+import type { EvidenceReference, FindingDetector } from "./contracts";
+import type { ReviewDecision } from "./contracts/workflow";
 
 export type ReviewAuditCategory =
   | "all"
@@ -43,6 +45,15 @@ export interface ReviewAuditEntry {
     providerUsed?: string;
     analysisStatus?: string;
     affectedContent?: string;
+    evidenceReferences?: EvidenceReference[];
+    sourceVersionIds?: string[];
+    detector?: FindingDetector;
+    confidence?: number;
+    requiresHumanReview?: boolean;
+    reviewDecision?: ReviewDecision;
+    reviewDecisionReason?: string;
+    resolvedAt?: string;
+    resolvedBy?: string;
     historicalValueAvailable: boolean; // Explicit flag distinguishing recorded vs unavailable history
     previousValueNotice?: string;      // e.g. "Previous version not recorded"
   };
@@ -176,6 +187,9 @@ export function buildReviewAuditTrail(
     } else if (act.type === "manual_finding_added") {
       category = "finding";
       title = "Manual Finding Added";
+    } else if (act.type === "finding_decision") {
+      category = "finding";
+      title = "Finding Decision Recorded";
     }
 
     entries.push({
@@ -215,6 +229,13 @@ export function buildReviewAuditTrail(
             matchingRecordedCmt.details.findingId = finding.id;
             matchingRecordedCmt.details.findingTitle = finding.title;
             matchingRecordedCmt.details.commentText = cmt.text;
+            matchingRecordedCmt.details.evidenceReferences = finding.evidenceReferences;
+            matchingRecordedCmt.details.sourceVersionIds = finding.sourceVersionIds;
+            matchingRecordedCmt.details.detector = finding.detector;
+            matchingRecordedCmt.details.confidence = finding.confidence;
+            matchingRecordedCmt.details.requiresHumanReview = finding.requiresHumanReview;
+            matchingRecordedCmt.details.reviewDecision = finding.reviewDecision;
+            matchingRecordedCmt.details.reviewDecisionReason = finding.reviewDecisionReason;
           }
         } else {
           entries.push({
@@ -234,6 +255,13 @@ export function buildReviewAuditTrail(
               findingTitle: finding.title,
               findingCategory: finding.category,
               commentText: cmt.text,
+              evidenceReferences: finding.evidenceReferences,
+              sourceVersionIds: finding.sourceVersionIds,
+              detector: finding.detector,
+              confidence: finding.confidence,
+              requiresHumanReview: finding.requiresHumanReview,
+              reviewDecision: finding.reviewDecision,
+              reviewDecisionReason: finding.reviewDecisionReason,
               historicalValueAvailable: true,
             },
           });
@@ -256,6 +284,13 @@ export function buildReviewAuditTrail(
             matchingRecordedCorr.details.correctionText = finding.editedCorrection;
             matchingRecordedCorr.details.detectedValue = finding.detectedValue;
             matchingRecordedCorr.details.expectedValue = finding.expectedValue;
+            matchingRecordedCorr.details.evidenceReferences = finding.evidenceReferences;
+            matchingRecordedCorr.details.sourceVersionIds = finding.sourceVersionIds;
+            matchingRecordedCorr.details.detector = finding.detector;
+            matchingRecordedCorr.details.confidence = finding.confidence;
+            matchingRecordedCorr.details.requiresHumanReview = finding.requiresHumanReview;
+            matchingRecordedCorr.details.reviewDecision = finding.reviewDecision;
+            matchingRecordedCorr.details.reviewDecisionReason = finding.reviewDecisionReason;
           }
         } else {
           entries.push({
@@ -277,6 +312,13 @@ export function buildReviewAuditTrail(
               expectedValue: finding.expectedValue,
               correctionText: finding.editedCorrection,
               affectedContent: finding.affectedContent,
+              evidenceReferences: finding.evidenceReferences,
+              sourceVersionIds: finding.sourceVersionIds,
+              detector: finding.detector,
+              confidence: finding.confidence,
+              requiresHumanReview: finding.requiresHumanReview,
+              reviewDecision: finding.reviewDecision,
+              reviewDecisionReason: finding.reviewDecisionReason,
               historicalValueAvailable: false,
               previousValueNotice:
                 "Previous copy text version not recorded (in-place replacement).",
@@ -312,6 +354,15 @@ export function buildReviewAuditTrail(
               findingCategory: finding.category,
               severity: finding.severity,
               evidenceStatus: finding.evidenceStatus,
+              evidenceReferences: finding.evidenceReferences,
+              sourceVersionIds: finding.sourceVersionIds,
+              detector: finding.detector,
+              confidence: finding.confidence,
+              requiresHumanReview: finding.requiresHumanReview,
+              reviewDecision: finding.reviewDecision,
+              reviewDecisionReason: finding.reviewDecisionReason,
+              resolvedAt: finding.resolvedAt,
+              resolvedBy: finding.resolvedBy,
               historicalValueAvailable: Boolean(finding.resolvedAt),
               previousValueNotice: finding.resolvedAt
                 ? undefined

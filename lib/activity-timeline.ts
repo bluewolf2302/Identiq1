@@ -94,6 +94,13 @@ export const ACTIVITY_EVENT_META: Record<
     textClass: "text-[#7C2D12]",
     badgeBg: "bg-[#F9DEC0]",
   },
+  finding_decision: {
+    label: "Finding Decision",
+    bgClass: "bg-[#DDF0FA]/60",
+    borderClass: "border-[#CBE2EF]",
+    textClass: "text-[#0C4A6E]",
+    badgeBg: "bg-[#DDF0FA]",
+  },
 };
 
 /**

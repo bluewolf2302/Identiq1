@@ -14,6 +14,7 @@ import type {
   DeterministicTextAnalysisInput,
   DeterministicTextAnalysisResult,
 } from "./types";
+import { applyFindingReliabilityPolicy } from "./finding-policy";
 
 const PROVIDER = "deterministic-text-engine";
 
@@ -64,7 +65,7 @@ export class DeterministicTextGovernanceEngine {
       if (!validated.success) {
         throw new InvalidGeneratedFindingError(validated.error.issues);
       }
-      return validated.data;
+      return applyFindingReliabilityPolicy(validated.data, true);
     });
 
     return { findings: validatedFindings };
