@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
+import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
 import { parseAnalysisResponsePayload } from "@/lib/analysis/api-adapters";
 import {
@@ -62,7 +63,8 @@ function estimatePdfPageCountFromText(rawLatin1: string): number | undefined {
 
 export default function NewReviewPage() {
   const router = useRouter();
-  const { knowledge, addReview, settings, notify } = useIdentiq();
+  const { knowledge, addReview, viewerProfile, user, notify } = useIdentiq();
+  const actor = resolveActiveActorIdentity({ viewerProfile, authUser: user });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [title, setTitle] = useState("");
@@ -288,7 +290,7 @@ export default function NewReviewPage() {
         data = parseAnalysisResponsePayload(JSON.parse(responseText));
       } catch {
         if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
-          throw new Error("Server returned an HTML error page. Please check API credentials and server logs.");
+          throw new Error("The review service returned an unexpected error response. Your creative asset and form details are preserved — please click Retry Review.");
         }
         throw new Error("The analysis response was invalid. Please try again.");
       }
@@ -306,7 +308,7 @@ export default function NewReviewPage() {
         title: title.trim(),
         contentType,
         guidelineCollection,
-        submittedBy: settings.reviewerName,
+        submittedBy: actor.name,
         submittedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
         status: data.findings.some((f) => !f.resolved && f.severity === "high")
           ? "Pending Approval"
@@ -589,7 +591,7 @@ export default function NewReviewPage() {
             className="w-full px-4 py-3 rounded-2xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] leading-relaxed placeholder:text-[#8E8780] focus:outline-none focus:bg-white focus:border-[#141414]"
           />
           <p className="text-[11px] text-[#6B6560] mt-1.5 tabular-nums">
-            {textContent.length} manual characters · Visual pipeline runs OCR, CIEDE2000 colour checks, logo checks, typography/layout checks, and Gemini Vision
+            {textContent.length} manual characters · Visual review extracts copy, checks brand colors, logos, layout, and creative guidelines
           </p>
         </div>
 

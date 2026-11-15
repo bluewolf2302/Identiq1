@@ -23,9 +23,31 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Identiq — Multimodal Brand Governance Platform",
+  title: {
+    default: "Identiq — Evidence-Driven Brand Governance",
+    template: "%s · Identiq",
+  },
   description:
-    "Evidence-driven brand governance platform for verifying campaign copy, visual assets, terminology, and compliance claims.",
+    "Audit campaign copy, visual creatives, and brand claims against approved guidelines with traceable evidence before release.",
+  applicationName: "Identiq",
+  openGraph: {
+    type: "website",
+    title: "Identiq — Evidence-Driven Brand Governance",
+    description:
+      "Review campaign copy, visual assets, and product claims side by side against verified brand guidelines.",
+    siteName: "Identiq",
+  },
+  twitter: {
+    card: "summary",
+    title: "Identiq — Evidence-Driven Brand Governance",
+    description:
+      "Audit campaign copy, visual creatives, and brand claims against approved guidelines with traceable evidence.",
+  },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -12,6 +12,7 @@ import {
   FileBarChart,
   FileText,
   Filter,
+  HelpCircle,
   Layers,
   Megaphone,
   Newspaper,
@@ -20,10 +21,11 @@ import {
   Search,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Tag,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { PASTEL_SURFACE, REVIEW_STATUS_META } from "@/components/ThemeTokens";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
@@ -38,6 +40,10 @@ import {
 import { formatActivityTimestamp } from "@/lib/activity-timeline";
 import { KpiCardGrid } from "@/components/dashboard/KpiCardGrid";
 import { DynamicComplianceChart } from "@/components/dashboard/DynamicComplianceChart";
+import { LandingView } from "@/components/onboarding/LandingView";
+import { OnboardingView } from "@/components/onboarding/OnboardingView";
+import { ViewerAvatar } from "@/components/ViewerAvatar";
+import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
 
 const CONTENT_FILTERS: Array<{
   label: string;
@@ -57,10 +63,22 @@ const DATE_RANGE_OPTIONS: Array<{ label: string; value: DateRangeOption }> = [
   { label: "Last 7 Days", value: "7d" },
 ];
 
-export default function DashboardPage() {
+export default function HomePage() {
   const router = useRouter();
-  const { reviews, activities, knowledge, settings, setActiveReviewId, user, persistenceMode, resetDemoWorkspace } =
-    useIdentiq();
+  const prefersReducedMotion = useReducedMotion();
+  const {
+    reviews,
+    activities,
+    knowledge,
+    setActiveReviewId,
+    user,
+    viewerProfile,
+    profileHydrated,
+    completeOnboarding,
+    replayGuidedTour,
+  } = useIdentiq();
+
+  const [entryStep, setEntryStep] = useState<"landing" | "onboarding">("landing");
 
   // Filter States
   const [selectedContentType, setSelectedContentType] = useState<"All" | ContentType>("All");
@@ -70,18 +88,15 @@ export default function DashboardPage() {
   const [mountedNow, setMountedNow] = useState<Date | null>(null);
 
   useEffect(() => {
-    // Hydration-safe client reference timestamp initialization
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMountedNow(new Date());
   }, []);
 
-  // Unique brand collections dynamically gathered from available data
   const availableBrands = useMemo(
     () => getUniqueBrands(reviews, GUIDELINE_COLLECTIONS),
-    [reviews],
+    [reviews]
   );
 
-  // Active filter payload
   const activeFilters = useMemo(
     () => ({
       contentType: selectedContentType,
@@ -89,20 +104,48 @@ export default function DashboardPage() {
       dateRange: selectedDateRange,
       searchQuery,
     }),
-    [selectedContentType, selectedBrand, selectedDateRange, searchQuery],
+    [selectedContentType, selectedBrand, selectedDateRange, searchQuery]
   );
 
-  // Filtered reviews list
   const filteredReviews = useMemo(
     () => filterReviews(reviews, activeFilters, mountedNow),
-    [reviews, activeFilters, mountedNow],
+    [reviews, activeFilters, mountedNow]
   );
 
-  // Dynamically computed KPI statistics
   const stats = useMemo(
     () => computeDashboardStats(filteredReviews),
-    [filteredReviews],
+    [filteredReviews]
   );
+
+  const actor = resolveActiveActorIdentity({
+    viewerProfile,
+    authUser: user,
+  });
+
+  if (!profileHydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF8F6] text-[#141414]">
+        <div className="flex items-center gap-2.5 text-sm font-semibold">
+          <span className="w-8 h-8 rounded-xl bg-[#141414] text-white flex items-center justify-center">
+            <ShieldCheck className="w-4 h-4" />
+          </span>
+          <span>Identiq</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!viewerProfile.onboardingCompleted) {
+    if (entryStep === "onboarding") {
+      return (
+        <OnboardingView
+          onBack={() => setEntryStep("landing")}
+          onComplete={completeOnboarding}
+        />
+      );
+    }
+    return <LandingView onGetStarted={() => setEntryStep("onboarding")} />;
+  }
 
   const isFiltered =
     selectedContentType !== "All" ||
@@ -130,52 +173,9 @@ export default function DashboardPage() {
       <div className="flex flex-col xl:flex-row gap-7 items-start">
         {/* Main Left / Center Editorial Workspace */}
         <div className="flex-1 min-w-0 w-full space-y-6">
-          {persistenceMode === "AUTHENTICATED_NO_ORGANISATION" && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#FCE3D8]/80 border border-[#F6CBB7] text-xs">
-              <div className="flex items-center gap-2.5 text-[#7C2D12]">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>
-                  Signed in as <strong>{user?.email}</strong>. No organisation membership found. Create an organisation to activate database persistence.
-                </span>
-              </div>
-              <Link
-                href="/login"
-                className="px-3 py-1.5 rounded-full bg-[#141414] text-white text-xs font-semibold hover:bg-[#2B2B2B] transition-colors shrink-0 whitespace-nowrap text-center"
-              >
-                Create Organisation
-              </Link>
-            </div>
-          )}
-
-          {persistenceMode === "SHARED_DEMO" && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#F0FDF4] border border-[#BBF7D0] text-xs">
-              <div className="flex items-center gap-2.5 text-[#14532D]">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E] animate-pulse shrink-0" />
-                <span>
-                  <strong>Shared Demo Workspace — Hosted Database:</strong> Live reviews and telemetry are loaded from and persisted to hosted Supabase. All writes are isolated to the shared demo workspace.
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => resetDemoWorkspace()}
-                  className="px-3 py-1.5 rounded-full bg-white border border-[#86EFAC] text-[#166534] hover:bg-[#DCFCE7] text-xs font-semibold transition-colors"
-                >
-                  Reset Demo DB
-                </button>
-                <Link
-                  href="/login"
-                  className="px-3 py-1.5 rounded-full bg-[#15803D] text-white hover:bg-[#166534] text-xs font-semibold transition-colors"
-                >
-                  Sign In
-                </Link>
-              </div>
-            </div>
-          )}
-
           {/* Welcome Header + Primary CTA */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium text-[#6B6560] mb-1.5">
                 Identiq Governance Overview · {approvedKnowledgeCount} active brand rules
               </p>
@@ -184,7 +184,7 @@ export default function DashboardPage() {
               </h1>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <Link
                 href="/reports"
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#FAF8F6] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs"
@@ -204,9 +204,9 @@ export default function DashboardPage() {
 
           {/* Comprehensive Multi-Filter Bar */}
           <div className="bg-[#F3EDE8]/70 border border-[#E7E1DA] rounded-2xl p-3 sm:p-3.5 space-y-3">
-            {/* Top row: Content type pills */}
-            <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
-              <div className="flex items-center gap-1.5 shrink-0">
+            {/* Top row: Content type chips (wrapped cleanly across screen widths) */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {CONTENT_FILTERS.map((f) => {
                   const Icon = f.icon;
                   const active = selectedContentType === f.value;
@@ -215,7 +215,7 @@ export default function DashboardPage() {
                       key={f.value}
                       type="button"
                       onClick={() => setSelectedContentType(f.value)}
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap shrink-0 border ${
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border ${
                         active
                           ? "bg-[#141414] text-white border-[#141414]"
                           : "bg-white text-[#3F3B37] border-[#E7E1DA] hover:bg-[#FAF8F6]"
@@ -248,8 +248,7 @@ export default function DashboardPage() {
 
             {/* Bottom row: Brand Dropdown, Date Range Selector, Search Input */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-              {/* Brand Selector */}
-              <div className="sm:col-span-4 relative">
+              <div className="sm:col-span-4 relative min-w-0">
                 <div className="flex items-center gap-2 bg-white border border-[#E7E1DA] rounded-xl px-3 py-2 text-xs">
                   <Tag className="w-3.5 h-3.5 text-[#6B6560] shrink-0" />
                   <select
@@ -258,7 +257,7 @@ export default function DashboardPage() {
                     onChange={(e) => setSelectedBrand(e.target.value)}
                     className="w-full bg-transparent text-[#141414] font-medium focus:outline-none truncate"
                   >
-                    <option value="All">All Brands & Collections</option>
+                    <option value="All">All Brands &amp; Collections</option>
                     {availableBrands.map((brand) => (
                       <option key={brand} value={brand}>
                         {brand}
@@ -268,8 +267,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Date Range Selector */}
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-3 min-w-0">
                 <div className="flex items-center gap-2 bg-white border border-[#E7E1DA] rounded-xl px-3 py-2 text-xs">
                   <Calendar className="w-3.5 h-3.5 text-[#6B6560] shrink-0" />
                   <select
@@ -290,8 +288,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Text Search Input */}
-              <div className="sm:col-span-5 relative">
+              <div className="sm:col-span-5 relative min-w-0">
                 <Search className="w-3.5 h-3.5 text-[#6B6560] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -309,8 +306,8 @@ export default function DashboardPage() {
 
           {/* Recent Submissions Section */}
           <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <h2 className="text-base font-bold text-[#141414]">Recent Submissions</h2>
                 <p className="text-xs text-[#6B6560]">
                   Showing {filteredReviews.length} of {reviews.length} total submissions
@@ -319,7 +316,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/approvals"
-                className="text-xs font-semibold text-[#524E4A] hover:text-[#141414] inline-flex items-center gap-1 transition-colors"
+                className="text-xs font-semibold text-[#524E4A] hover:text-[#141414] inline-flex items-center gap-1 transition-colors shrink-0"
               >
                 View approval queue
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -336,7 +333,7 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-xs text-[#6B6560] max-w-sm mx-auto">
                   {reviews.length === 0
-                    ? "Start your first automated multimodal brand governance review to view insights."
+                    ? "Start your first multimodal brand governance review to view insights."
                     : "Try adjusting your date range, brand selection, or content type filter."}
                 </p>
                 {isFiltered ? (
@@ -362,19 +359,23 @@ export default function DashboardPage() {
                   const surface = PASTEL_SURFACE[review.pastelTheme];
                   const openCount = review.findings.filter((f) => !f.resolved).length;
                   const statusMeta = REVIEW_STATUS_META[review.status];
+                  const motionProps = prefersReducedMotion
+                    ? {}
+                    : {
+                        initial: { opacity: 0, y: 6 },
+                        animate: { opacity: 1, y: 0 },
+                        transition: { duration: 0.18, delay: index * 0.03 },
+                      };
 
                   return (
                     <motion.button
                       key={review.id}
                       type="button"
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18, delay: index * 0.03 }}
+                      {...motionProps}
                       onClick={() => openInStudio(review.id)}
-                      className={`text-left w-full ${surface.bg} border ${surface.border} rounded-[22px] p-5 hover:brightness-[0.985] transition-all flex flex-col justify-between min-h-[192px]`}
+                      className={`text-left w-full min-w-0 ${surface.bg} border ${surface.border} rounded-[22px] p-5 hover:brightness-[0.985] transition-all flex flex-col justify-between min-h-[192px]`}
                     >
-                      <div>
-                        {/* Card Header: Type, Brand Tag & Compliance Score */}
+                      <div className="min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <span
@@ -392,21 +393,18 @@ export default function DashboardPage() {
                           </span>
                         </div>
 
-                        {/* Title & Brand Tag */}
-                        <h3 className="text-base font-bold text-[#141414] leading-snug mb-1">
+                        <h3 className="text-base font-bold text-[#141414] leading-snug mb-1 truncate">
                           {review.title}
                         </h3>
                         <p className="text-[11px] font-medium text-[#524E4A] mb-2 truncate">
                           {review.guidelineCollection}
                         </p>
 
-                        {/* Copy Snippet */}
                         <p className="text-xs text-[#3F3B37] line-clamp-2 leading-relaxed">
                           {review.textContent}
                         </p>
                       </div>
 
-                      {/* Card Footer: Submitter, Submission Date, Open Issues, Status */}
                       <div className="pt-3 mt-3 border-t border-black/8 space-y-1.5 text-xs text-[#3F3B37]">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-[11px] text-[#6B6560]">
@@ -433,9 +431,8 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        {/* Right Aside: Profile, Approvals Shortcut & Dynamic Analytics Chart */}
-        <aside className="w-full xl:w-[356px] shrink-0 bg-[#F3EDE8] border border-[#E7E1DA] rounded-[28px] p-5 space-y-5">
-          {/* Profile Header */}
+        {/* Right Aside: Viewer Profile, Approvals Shortcut & Dynamic Analytics Chart */}
+        <aside className="w-full xl:w-[356px] shrink-0 bg-[#F3EDE8] border border-[#E7E1DA] rounded-[28px] p-5 space-y-5 min-w-0">
           <div className="flex items-center justify-between">
             <Link
               href="/activity"
@@ -444,50 +441,59 @@ export default function DashboardPage() {
             >
               <Bell className="w-4 h-4" />
             </Link>
-            <Link
-              href="/settings"
-              aria-label="Open governance settings"
-              className="w-9 h-9 rounded-full bg-white border border-[#E7E1DA] flex items-center justify-center text-[#141414] hover:bg-[#FAF8F6] transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => replayGuidedTour()}
+                aria-label="Replay quick tour"
+                title="Quick Product Tour"
+                className="w-9 h-9 rounded-full bg-white border border-[#E7E1DA] flex items-center justify-center text-[#141414] hover:bg-[#FAF8F6] transition-colors"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+              <Link
+                href="/settings"
+                aria-label="Open workspace settings"
+                className="w-9 h-9 rounded-full bg-white border border-[#E7E1DA] flex items-center justify-center text-[#141414] hover:bg-[#FAF8F6] transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
 
-          <div className="text-center">
-            <img
-              src="/images/avatar_brand_lead.jpg"
-              alt={settings.reviewerName}
-              referrerPolicy="no-referrer"
-              className="w-16 h-16 rounded-full object-cover mx-auto border-2 border-white shadow-xs mb-2.5"
+          <div className="text-center px-2 min-w-0">
+            <ViewerAvatar
+              name={actor.name}
+              avatarId={viewerProfile.avatarId}
+              customAvatarDataUrl={viewerProfile.customAvatarDataUrl}
+              size="xl"
+              className="mx-auto mb-2.5 shadow-xs"
             />
-            <h2 className="text-base font-bold text-[#141414]">{settings.reviewerName}</h2>
-            <p className="text-xs text-[#6B6560]">{settings.reviewerRole}</p>
+            <h2 className="text-base font-bold text-[#141414] truncate">{actor.name}</h2>
+            <p className="text-xs text-[#6B6560] truncate">{actor.role}</p>
           </div>
 
-          {/* Pending Approvals Quick Row */}
           <Link
             href="/approvals"
             className="flex items-center justify-between bg-white border border-[#E7E1DA] rounded-2xl px-4 py-3 hover:border-[#141414]/40 transition-colors"
           >
-            <div className="flex items-center gap-2.5">
-              <span className="w-7 h-7 rounded-full bg-[#FAF8F6] flex items-center justify-center text-[#141414]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-7 h-7 rounded-full bg-[#FAF8F6] flex items-center justify-center text-[#141414] shrink-0">
                 <Clock className="w-3.5 h-3.5" />
               </span>
-              <span className="text-xs font-semibold text-[#141414] tabular-nums">
+              <span className="text-xs font-semibold text-[#141414] tabular-nums truncate">
                 {stats.pendingReviews} Pending Approvals
               </span>
             </div>
-            <ArrowRight className="w-4 h-4 text-[#6B6560]" />
+            <ArrowRight className="w-4 h-4 text-[#6B6560] shrink-0" />
           </Link>
 
-          {/* Dynamic Interactive Analytics Chart (Replaces static seed chart) */}
           <DynamicComplianceChart
             reviews={filteredReviews}
             allReviewsCount={reviews.length}
             onResetFilters={resetAllFilters}
           />
 
-          {/* Compact Recent Activity Section */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#141414]">Recent Activity</h3>
@@ -517,15 +523,15 @@ export default function DashboardPage() {
                     className={`w-full text-left ${cardColor} border rounded-2xl p-3.5 hover:brightness-[0.985] transition-all`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-[11px] font-semibold text-[#141414] flex items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-[#141414] flex items-center gap-1.5 min-w-0 truncate">
                         {act.type === "approved" ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#14532D]" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#14532D] shrink-0" />
                         ) : (
-                          <ShieldAlert className="w-3.5 h-3.5 text-[#141414]" />
+                          <ShieldAlert className="w-3.5 h-3.5 text-[#141414] shrink-0" />
                         )}
-                        {act.actor}
+                        <span className="truncate">{act.actor}</span>
                       </span>
-                      <span className="text-[11px] text-[#524E4A] tabular-nums">
+                      <span className="text-[11px] text-[#524E4A] tabular-nums shrink-0">
                         {formatActivityTimestamp(act.timestamp, mountedNow)}
                       </span>
                     </div>

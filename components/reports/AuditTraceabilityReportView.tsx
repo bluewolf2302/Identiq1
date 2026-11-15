@@ -92,7 +92,7 @@ export function AuditTraceabilityReportView({
         <div>
           <span className="font-semibold text-[#141414]">Audit Provenance & State Integrity Notice:</span>
           <p className="mt-0.5 leading-relaxed">
-            Events marked as <span className="font-semibold text-[#14532D]">Recorded Event</span> represent verified action logs captured during user sessions. Entries marked as <span className="font-semibold text-[#736B63]">Current Snapshot</span> represent synthesized lifecycle records from creative state. In client preview mode, session events reside in local storage and will transition to cryptographically verifiable immutable audit records upon Supabase database persistence.
+            Events marked as <span className="font-semibold text-[#14532D]">Recorded Event</span> represent verified action logs captured during review sessions. Entries marked as <span className="font-semibold text-[#736B63]">Current Snapshot</span> represent synthesized lifecycle records from creative state, while recorded events preserve a traceable audit log across workspace sessions.
           </p>
         </div>
       </div>

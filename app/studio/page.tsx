@@ -375,7 +375,8 @@ function ReviewStudioInner() {
                       </>
                     )}
                     {Boolean(
-                      activeReview.providerUsed?.includes("openrouter") ||
+                      activeReview.fallbackUsed ||
+                        activeReview.providerUsed?.includes("openrouter") ||
                         activeReview.visualSummary?.warnings.some((w) =>
                           w.toLowerCase().includes("fallback"),
                         ),
@@ -383,11 +384,11 @@ function ReviewStudioInner() {
                       <>
                         <span>·</span>
                         <span
-                          aria-label="Fallback provider used"
+                          aria-label="Backup review path used"
                           className="px-2.5 py-0.5 rounded-full bg-[#DDF0FA] border border-[#CBE2EF] text-[#0C4A6E] font-semibold text-[11px] inline-flex items-center gap-1"
                         >
                           <Sparkles className="w-3 h-3" />
-                          Fallback Provider Active
+                          Resilient Review Mode
                         </span>
                       </>
                     )}
@@ -583,13 +584,6 @@ function ReviewStudioInner() {
                       Submitted by {activeReview.submittedBy} · {activeReview.submittedAt} ·
                       Compliance Score: {activeReview.complianceScore}%
                     </p>
-                    {activeReview.providerUsed && (
-                      <p className="text-[11px] text-[#6B6560] mt-1">
-                        Analyzed by {activeReview.providerUsed}
-                        {activeReview.fallbackUsed ? " (fallback used)" : ""}
-                        {activeReview.analysisRunId ? ` · Run ${activeReview.analysisRunId}` : ""}
-                      </p>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">

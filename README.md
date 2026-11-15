@@ -1,34 +1,32 @@
-# Identiq — Multimodal Brand Governance Platform
+# Identiq — Brand Governance & Compliance Platform
 
-Identiq is a multimodal, evidence-driven brand governance platform designed to help enterprise brand, legal, and marketing teams audit campaign copy, social creative, press releases, and product documentation against verified brand knowledge.
+Identiq is an evidence-driven brand governance platform designed to help brand, legal, and marketing teams inspect campaign copy, visual creatives, PDFs, and product documentation against verified brand knowledge.
 
 ---
 
-## Key Features
+## Product Entry & Core Workflow
 
-1. **Dashboard (`/`)**: High-level compliance KPI summary, review status distribution, recent submissions grid with pastel theme cards, and a review activity breakdown chart.
-2. **Brand Knowledge Hub (`/knowledge-hub`)**: Complete CRUD and approval management across 7 essential brand governance sections (Guidelines, Approved Facts, Terminology, Restricted Claims, Brand Voice, Colours & Typography, Usage Policies).
-3. **Asset Library (`/assets`)**: Visual asset management for logos, photography, marketing assets, and icons with category filtering, preview inspection, and upload workflow.
-4. **New Review (`/reviews/new`)**: Multimodal submission pipeline accepting copy text and visual assets, auditing against approved brand rules via server-side AI.
-5. **Review Studio (`/studio`)**: Central workspace inspired by modern SaaS design systems featuring:
-   - Split view preview of submitted copy with live highlighting of affected segments.
-   - Findings categorized by severity and evidence status (**Supported**, **Conflicting**, **Unverified**).
-   - Editable correction drafting with live `"Accept & Apply Fix"` updates.
-   - Reviewer comment threads and manual finding creation.
-   - Floating dark contextual toolbar.
-6. **Approvals (`/approvals`)**: Dedicated queue for reviewers to inspect issues, review suggested corrections, post decision notes, and sign off with `Approve Content` or `Request Changes`.
-7. **Activity / History (`/activity`)**: Comprehensive audit trail of submissions, review decisions, and knowledge updates.
-8. **Settings (`/settings`)**: Reviewer profile customization, evidence policies, and integration configuration.
+1. **First-Visit Landing Page (`/`)**: Introduces Identiq's evidence-backed review approach (`Supported`, `Conflicting`, and `Unverified` distinctions) with a single `"Get Started"` flow into workspace setup.
+2. **One-Time Profile Setup**: Collects a required reviewer name and lets you choose a bespoke geometric avatar preset or upload a custom photo (`PNG`/`JPG`/`WEBP`, up to `512 KB`). Returning visitors restore their profile and enter the dashboard directly.
+3. **Optional Guided Introduction**: A five-step walkthrough introducing Brand Knowledge Hub, Asset Library, New Review, Review Studio, and Approvals & Reports, replayable anytime from the top bar or Settings.
+4. **Dashboard (`/`)**: Compliance KPI summary, multi-filter bar (content type, brand collection, date range, search), recent review cards, interactive governance analytics (`Activity`, `Status`, `Severity`, `Topics`), and recent activity.
+5. **Brand Knowledge Hub (`/knowledge-hub`)**: Complete CRUD and approval management across brand governance sections plus session PDF guideline rule drafting.
+6. **Asset Library (`/assets`)**: Visual asset library for approved logos, color references, photography, and templates.
+7. **New Review (`/reviews/new`)**: Multimodal submission pipeline accepting campaign copy, images, and PDFs (including the Teralune sample PDF fixture), running OCR, visual rule checks, and AI governance analysis.
+8. **Review Studio (`/studio`)**: Split-view inspection workspace with highlighted copy, creative bounding-box overlays, evidence status filtering, guided replacements, reviewer decisions, and comment threads.
+9. **Approvals (`/approvals`)**: Queue for inspecting pending reviews, checking resolution progress, and signing off with `Approve Content` or `Request Changes`.
+10. **Activity & Reports (`/activity`, `/reports`)**: Full chronological activity feed, brand compliance reports, printable review dossiers, and structured CSV exports.
+11. **Settings (`/settings`)**: Edit reviewer name, role, and avatar; configure evidence policies; replay the product tour; or safely reset sample workspace data.
 
 ---
 
 ## Technology Stack
 
 - **Framework**: Next.js 16 (App Router)
-- **UI & Styling**: Tailwind CSS v4, Lucide React icons, motion
-- **AI Integration**: Server-side abstraction supporting **OpenRouter** (primary) and **Gemini** (`@google/genai` fallback) with structured JSON schema validation.
-- **Data & Storage**: LocalStorage prototype state with full Supabase integration boundaries (`lib/supabase/client.ts`).
-- **Deployment**: Vercel (standalone Node.js runtime)
+- **UI & Styling**: Tailwind CSS v4, Lucide React icons, `motion/react`
+- **AI Integration**: Server-side routes (`/api/analyze`) supporting OpenRouter and Gemini (`@google/genai`) with structured schema validation and deterministic fallback
+- **Persistence**: Dedicated local viewer profile (`identiq_viewer_profile_v1`), browser demo state, and Supabase auth/multi-tenant persistence boundaries (`lib/supabase/client.ts`)
+- **Verification**: Node built-in test runner (`npm test`), TypeScript (`npx tsc --noEmit`), ESLint (`npm run lint`), and Next.js production build (`npm run build`)
 
 ---
 
@@ -42,7 +40,7 @@ Identiq is a multimodal, evidence-driven brand governance platform designed to h
    ```bash
    npm install
    ```
-2. Configure environment variables (optional for live AI / Supabase):
+2. Configure environment variables (optional for live AI / team workspace persistence):
    ```bash
    cp .env.example .env.local
    ```
@@ -51,3 +49,9 @@ Identiq is a multimodal, evidence-driven brand governance platform designed to h
    npm run dev
    ```
 4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+5. Run automated tests and type checks:
+   ```bash
+   npm test
+   npx tsc --noEmit
+   npm run lint
+   ```
