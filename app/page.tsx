@@ -59,7 +59,8 @@ const DATE_RANGE_OPTIONS: Array<{ label: string; value: DateRangeOption }> = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { reviews, activities, knowledge, settings, setActiveReviewId } = useIdentiq();
+  const { reviews, activities, knowledge, settings, setActiveReviewId, user, persistenceMode, resetDemoWorkspace } =
+    useIdentiq();
 
   // Filter States
   const [selectedContentType, setSelectedContentType] = useState<"All" | ContentType>("All");
@@ -129,6 +130,49 @@ export default function DashboardPage() {
       <div className="flex flex-col xl:flex-row gap-7 items-start">
         {/* Main Left / Center Editorial Workspace */}
         <div className="flex-1 min-w-0 w-full space-y-6">
+          {persistenceMode === "AUTHENTICATED_NO_ORGANISATION" && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#FCE3D8]/80 border border-[#F6CBB7] text-xs">
+              <div className="flex items-center gap-2.5 text-[#7C2D12]">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span>
+                  Signed in as <strong>{user?.email}</strong>. No organisation membership found. Create an organisation to activate database persistence.
+                </span>
+              </div>
+              <Link
+                href="/login"
+                className="px-3 py-1.5 rounded-full bg-[#141414] text-white text-xs font-semibold hover:bg-[#2B2B2B] transition-colors shrink-0 whitespace-nowrap text-center"
+              >
+                Create Organisation
+              </Link>
+            </div>
+          )}
+
+          {persistenceMode === "SHARED_DEMO" && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#F0FDF4] border border-[#BBF7D0] text-xs">
+              <div className="flex items-center gap-2.5 text-[#14532D]">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E] animate-pulse shrink-0" />
+                <span>
+                  <strong>Shared Demo Workspace — Hosted Database:</strong> Live reviews and telemetry are loaded from and persisted to hosted Supabase. All writes are isolated to the shared demo workspace.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => resetDemoWorkspace()}
+                  className="px-3 py-1.5 rounded-full bg-white border border-[#86EFAC] text-[#166534] hover:bg-[#DCFCE7] text-xs font-semibold transition-colors"
+                >
+                  Reset Demo DB
+                </button>
+                <Link
+                  href="/login"
+                  className="px-3 py-1.5 rounded-full bg-[#15803D] text-white hover:bg-[#166534] text-xs font-semibold transition-colors"
+                >
+                  Sign In
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Welcome Header + Primary CTA */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
