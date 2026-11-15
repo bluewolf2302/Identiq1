@@ -3,6 +3,10 @@ import { z } from "zod";
 import {
   AnalysisRequestSchema,
   AnalysisResponseSchema,
+  EvidenceReferenceSchema,
+  FindingLocationSchema,
+  OcrBlockContractSchema,
+  VisualAnalysisSummarySchema,
   type AnalysisRequest,
   type EvidenceReference,
   type FindingSeverity,
@@ -12,6 +16,7 @@ import type {
   AnalysisRequestPayload,
   AnalysisResponsePayload,
   FindingCategory,
+  ReviewComment,
   ReviewFinding,
 } from "../types";
 
@@ -65,6 +70,13 @@ export class InvalidBackendAnalysisResponseError extends Error {
   constructor() {
     super("The analysis response failed contract validation.");
     this.name = "InvalidBackendAnalysisResponseError";
+  }
+}
+
+export class InvalidAnalysisResponsePayloadError extends Error {
+  constructor() {
+    super("The analysis response payload is invalid.");
+    this.name = "InvalidAnalysisResponsePayloadError";
   }
 }
 
@@ -242,6 +254,7 @@ export function adaptBackendResponse(
   if (!parsed.success) {
     throw new InvalidBackendAnalysisResponseError();
   }
+
   const findings = parsed.data.findings.map((finding) =>
     mapFinding(finding, content),
   );
@@ -264,4 +277,81 @@ export function adaptBackendResponse(
     ...(parsed.data.ocrBlocks ? { ocrBlocks: parsed.data.ocrBlocks } : {}),
     ...(parsed.data.visualSummary ? { visualSummary: parsed.data.visualSummary } : {}),
   };
+}
+
+const FrontendReviewCommentSchema: z.ZodType<ReviewComment> = z
+  .object({
+    id: z.string().min(1),
+    author: z.string().min(1),
+    role: z.string().min(1),
+    text: z.string().min(1),
+    createdAt: z.string().min(1),
+  })
+  .strict();
+
+const FrontendReviewFindingSchema: z.ZodType<ReviewFinding> = z
+  .object({
+    id: z.string().min(1),
+    category: z.enum([
+      "Brand Claims",
+      "Terminology",
+      "Tone & Voice",
+      "Visual Identity",
+      "Legal & Usage",
+    ]),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    severity: z.enum(["high", "medium", "low"]),
+    evidenceStatus: z.enum(["supported", "conflicting", "unverified"]),
+    detectedValue: z.string(),
+    expectedValue: z.string(),
+    sourceReference: z.string(),
+    recommendation: z.string(),
+    affectedContent: z.string(),
+    resolved: z.boolean(),
+    editedCorrection: z.string().optional(),
+    comments: z.array(FrontendReviewCommentSchema),
+    evidenceReferences: z.array(EvidenceReferenceSchema).optional(),
+    sourceVersionIds: z.array(z.string().min(1)).optional(),
+    location: FindingLocationSchema.optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    detector: z.enum([
+      "ocr",
+      "deterministic",
+      "image_matching",
+      "gemini_vision",
+      "openrouter_vision",
+      "ai_semantic",
+    ]).optional(),
+    ruleId: z.string().min(1).nullable().optional(),
+    requiresHumanReview: z.boolean().optional(),
+    sourceDomain: z.enum(["text", "visual"]).optional(),
+    reviewDecision: z.enum(["APPROVE", "REQUEST_CHANGES", "REJECT"]).optional(),
+    reviewDecisionReason: z.string().min(1).optional(),
+    reviewDecisionAt: z.string().min(1).optional(),
+    reviewDecisionBy: z.string().min(1).optional(),
+  })
+  .strict();
+
+const FrontendAnalysisResponseSchema: z.ZodType<AnalysisResponsePayload> = z.object({
+  complianceScore: z.number().finite(),
+  providerUsed: z.string().trim().min(1),
+  summary: z.string(),
+  findings: z.array(FrontendReviewFindingSchema),
+  submissionId: z.string().min(1),
+  analysisRunId: z.string().min(1),
+  analysisStatus: z.enum(["COMPLETED", "PARTIAL", "FAILED"]),
+  fallbackUsed: z.boolean(),
+  ocrBlocks: z.array(OcrBlockContractSchema).optional(),
+  visualSummary: VisualAnalysisSummarySchema.optional(),
+}).strict();
+
+export function parseAnalysisResponsePayload(
+  input: unknown,
+): AnalysisResponsePayload {
+  const parsed = FrontendAnalysisResponseSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvalidAnalysisResponsePayloadError();
+  }
+  return parsed.data;
 }

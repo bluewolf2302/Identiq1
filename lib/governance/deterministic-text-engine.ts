@@ -14,6 +14,7 @@ import type {
   DeterministicTextAnalysisInput,
   DeterministicTextAnalysisResult,
 } from "./types";
+import { applyFindingReliabilityPolicy } from "./finding-policy";
 
 const PROVIDER = "deterministic-text-engine";
 
@@ -64,7 +65,7 @@ export class DeterministicTextGovernanceEngine {
       if (!validated.success) {
         throw new InvalidGeneratedFindingError(validated.error.issues);
       }
-      return validated.data;
+      return applyFindingReliabilityPolicy(validated.data, true);
     });
 
     return { findings: validatedFindings };
@@ -90,7 +91,7 @@ export class DeterministicTextGovernanceEngine {
           explanation: `The phrase "${phrase}" is explicitly listed as prohibited terminology.`,
           suggestedCorrection: "Replace the prohibited terminology with approved brand wording.",
           location,
-          evidenceReferences: this.evidenceFor(rule, context),
+          evidenceReferences: this.evidenceFor(rule),
         }),
       );
     });
@@ -119,7 +120,7 @@ export class DeterministicTextGovernanceEngine {
           description: "The submitted text does not contain terminology explicitly marked as required.",
           explanation: `The approved brand context explicitly requires the phrase "${phrase}".`,
           suggestedCorrection: `Include the approved phrase "${phrase}".`,
-          evidenceReferences: this.evidenceFor(rule, context),
+          evidenceReferences: this.evidenceFor(rule),
         }),
       ];
     });
@@ -166,7 +167,7 @@ export class DeterministicTextGovernanceEngine {
           expectedValue: structured.value,
           explanation: `The approved value is "${expected}", but the submitted text contains a different comparable value.`,
           suggestedCorrection: `Use the approved value "${structured.value}".`,
-          evidenceReferences: this.evidenceFor(fact, context),
+          evidenceReferences: this.evidenceFor(fact),
         }),
       ];
     });
@@ -193,7 +194,7 @@ export class DeterministicTextGovernanceEngine {
           explanation: `The phrase "${phrase}" is explicitly marked as prohibited in the approved promotional claim data.`,
           suggestedCorrection: "Remove or replace the prohibited promotional phrase.",
           location,
-          evidenceReferences: this.evidenceFor(claim, context),
+          evidenceReferences: this.evidenceFor(claim),
         }),
       );
     });
@@ -203,12 +204,8 @@ export class DeterministicTextGovernanceEngine {
     return findWholeWordMatches(content, phrase);
   }
 
-  private evidenceFor(value: string, context: BrandContext): EvidenceReference[] {
-    const source = extractSourceReference(
-      value,
-      context.sourceIds[0],
-      context.versionId.split(", ")[0],
-    );
+  private evidenceFor(value: string): EvidenceReference[] {
+    const source = extractSourceReference(value, undefined, undefined);
     return source ? [source] : [];
   }
 

@@ -18,6 +18,7 @@ import { GeminiProvider } from "./gemini-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
 import { buildAiAnalysisRequest } from "./prompt-builder";
 import { parseAndValidateCandidates } from "./response-validator";
+import { areDuplicateFindings } from "../analysis/finding-merger";
 
 export class AiAnalysisService {
   private readonly primary?: AiProvider;
@@ -47,7 +48,12 @@ export class AiAnalysisService {
       try {
         const raw = await provider.analyze(request);
         const findings = parseAndValidateCandidates(raw, context.data, input.content)
-          .filter((finding) => !isDuplicateOfDeterministic(finding, input.deterministicFindings));
+          .filter(
+            (finding) =>
+              !input.deterministicFindings?.some((existing) =>
+                areDuplicateFindings(existing, finding),
+              ),
+          );
         return {
           findings,
           providerUsed: provider.name,
@@ -132,43 +138,40 @@ export function createAiAnalysisServiceFromEnvironment(
   if (environment === undefined) {
     loadLocalEnvironment();
   }
-
-  const openRouterModel =
-    process.env.OPENROUTER_MODEL?.trim() ||
-    process.env.OPENROUTER_TEXT_MODEL?.trim() ||
-    "google/gemini-3.6-flash";
-
-  const geminiModel =
-    process.env.GEMINI_MODEL?.trim() ||
-    process.env.GEMINI_TEXT_MODEL?.trim() ||
-    "gemini-3.6-flash";
-
-  const primary = process.env.OPENROUTER_API_KEY?.trim()
-    ? new OpenRouterProvider({
-        apiKey: process.env.OPENROUTER_API_KEY.trim(),
-        model: openRouterModel,
-      })
-    : undefined;
-
-  const fallback = process.env.GEMINI_API_KEY?.trim()
-    ? new GeminiProvider({
-        apiKey: process.env.GEMINI_API_KEY.trim(),
-        model: geminiModel,
-      })
-    : undefined;
-
-  return new AiAnalysisService({ primary, fallback });
+  const env = environment ?? process.env;
+  const geminiConfiguration = getProviderConfiguration(
+    env.GEMINI_API_KEY,
+    env.GEMINI_MODEL ?? env.GEMINI_TEXT_MODEL,
+  );
+  const openRouterConfiguration = getProviderConfiguration(
+    env.OPENROUTER_API_KEY,
+    env.OPENROUTER_MODEL ?? env.OPENROUTER_TEXT_MODEL,
+  );
+  const configured = {
+    gemini: geminiConfiguration
+      ? new GeminiProvider({ ...geminiConfiguration, ...options })
+      : undefined,
+    openrouter: openRouterConfiguration
+      ? new OpenRouterProvider({ ...openRouterConfiguration, ...options })
+      : undefined,
+  };
+  const primaryName = env.AI_PRIMARY_PROVIDER?.trim().toLowerCase() || "gemini";
+  if (primaryName !== "gemini" && primaryName !== "openrouter") {
+    throw new InvalidAiProviderConfigurationError(primaryName);
+  }
+  const fallbackName = primaryName === "gemini" ? "openrouter" : "gemini";
+  const selectedPrimary = configured[primaryName];
+  const configuredFallback = configured[fallbackName];
+  return new AiAnalysisService({
+    primary: selectedPrimary ?? configuredFallback,
+    fallback: selectedPrimary ? configuredFallback : undefined,
+  });
 }
 
-function isDuplicateOfDeterministic(
-  finding: import("../contracts").ReviewFinding,
-  deterministicFindings: import("../contracts").ReviewFinding[] = [],
-): boolean {
-  return deterministicFindings.some(
-    (existing) =>
-      existing.category === finding.category &&
-      existing.location?.startOffset === finding.location?.startOffset &&
-      existing.location?.endOffset === finding.location?.endOffset &&
-      existing.issue.toLocaleLowerCase() === finding.issue.toLocaleLowerCase(),
-  );
+function getProviderConfiguration(
+  apiKey: string | undefined,
+  model: string | undefined,
+): Pick<ProviderConfiguration, "apiKey" | "model"> | undefined {
+  if (!apiKey?.trim() || !model?.trim()) return undefined;
+  return { apiKey: apiKey.trim(), model: model.trim() };
 }

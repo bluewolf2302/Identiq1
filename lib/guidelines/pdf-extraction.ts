@@ -24,7 +24,6 @@ export async function extractGuidelinePdfText(
   const loadingTask = getDocument({
     data: bytes,
     stopAtErrors: true,
-    isEvalSupported: false,
     useSystemFonts: true,
     verbosity: 0,
   });

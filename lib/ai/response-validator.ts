@@ -2,11 +2,19 @@ import { z } from "zod";
 
 import {
   BrandContextSchema,
+  ComplianceCategorySchema,
+  FindingSeveritySchema,
+  FindingStatusSchema,
   ReviewFindingSchema,
   type BrandContext,
   type EvidenceReference,
   type ReviewFinding,
 } from "../contracts";
+import {
+  collectApprovedSourceRecords,
+  isApprovedEvidenceReference,
+} from "../governance/evidence-validation";
+import { applyFindingReliabilityPolicy } from "../governance/finding-policy";
 
 const optionalNonEmptyString = z.preprocess(
   (v) => (v === null || (typeof v === "string" && !v.trim()) ? undefined : v),
@@ -53,42 +61,9 @@ const CandidateLocationSchema = z
 
 export const AiFindingCandidateSchema = z
   .object({
-    category: z.preprocess((val) => {
-      if (typeof val !== "string") return "FACT_VERIFICATION";
-      const upper = val.trim().toUpperCase();
-      if (upper.includes("TONE") || upper.includes("TERM")) return "TONE_AND_TERMINOLOGY";
-      if (upper.includes("CLAIM") || upper.includes("FACT") || upper.includes("BRAND")) return "FACT_VERIFICATION";
-      if (upper.includes("PROMO") || upper.includes("LEGAL") || upper.includes("USAGE")) return "PROMOTIONAL_CLAIM";
-      if (upper.includes("VISUAL") || upper.includes("LOGO") || upper.includes("COLOUR")) return "VISUAL_COMPLIANCE";
-      if (upper.includes("ACCESS")) return "ACCESSIBILITY";
-      return "FACT_VERIFICATION";
-    }, z.enum([
-      "TONE_AND_TERMINOLOGY",
-      "FACT_VERIFICATION",
-      "PROMOTIONAL_CLAIM",
-      "VISUAL_COMPLIANCE",
-      "ACCESSIBILITY",
-    ])),
-    severity: z.preprocess((val) => {
-      if (typeof val !== "string") return "MEDIUM";
-      const upper = val.trim().toUpperCase();
-      if (["HIGH", "MEDIUM", "LOW", "INFO"].includes(upper)) return upper;
-      if (upper === "CRITICAL" || upper === "SEVERE") return "HIGH";
-      return "MEDIUM";
-    }, z.enum(["HIGH", "MEDIUM", "LOW", "INFO"])),
-    status: z.preprocess((val) => {
-      if (typeof val !== "string") return "UNVERIFIED";
-      const upper = val.trim().toUpperCase();
-      if (["SUPPORTED", "CONFLICTING", "UNVERIFIED", "NEEDS_HUMAN_REVIEW"].includes(upper)) return upper;
-      if (upper === "FALSE" || upper === "VIOLATION") return "CONFLICTING";
-      if (upper === "TRUE" || upper === "PASS") return "SUPPORTED";
-      return "UNVERIFIED";
-    }, z.enum([
-      "SUPPORTED",
-      "CONFLICTING",
-      "UNVERIFIED",
-      "NEEDS_HUMAN_REVIEW",
-    ])),
+    category: ComplianceCategorySchema,
+    severity: FindingSeveritySchema,
+    status: FindingStatusSchema,
     issue: z.string().trim().min(1),
     description: z.string().trim().min(1),
     detectedValue: optionalNonEmptyString,
@@ -147,18 +122,12 @@ export function parseAndValidateCandidates(
     throw new AiCandidateValidationError(parsed.error.issues);
   }
 
-  const sourceIds = new Set(parsedContext.data.sourceIds);
-  const versionIds = new Set(parsedContext.data.versionId.split(",").map((id) => id.trim()));
+  const sourceRecords = collectApprovedSourceRecords(parsedContext.data);
   return parsed.data.findings.map((candidate, index) => {
     for (const evidence of candidate.evidenceReferences) {
-      if (!sourceIds.has(evidence.sourceId)) {
+      if (!isApprovedEvidenceReference(evidence, sourceRecords)) {
         throw new AiEvidenceValidationError(
-          `AI finding ${index} referenced an unknown source.`,
-        );
-      }
-      if (!versionIds.has(evidence.versionId)) {
-        throw new AiEvidenceValidationError(
-          `AI finding ${index} referenced an invalid source version.`,
+          `AI finding ${index} referenced invalid or mismatched source evidence.`,
         );
       }
     }
@@ -174,7 +143,12 @@ export function parseAndValidateCandidates(
       location,
       analysisProvider: "ai-semantic-analysis",
     });
-    return finding;
+    const evidenceSufficient =
+      candidate.status !== "SUPPORTED" &&
+      candidate.status !== "CONFLICTING"
+        ? true
+        : candidate.evidenceReferences.some((reference) => reference.excerpt);
+    return applyFindingReliabilityPolicy(finding, evidenceSufficient);
   });
 }
 
@@ -188,27 +162,31 @@ function validateLocation(
   if (
     location.startOffset !== undefined &&
     location.endOffset !== undefined &&
+    location.startOffset >= 0 &&
     location.endOffset <= content.length &&
-    location.startOffset <= location.endOffset
+    location.startOffset <= location.endOffset &&
+    (!location.quote ||
+      content.slice(location.startOffset, location.endOffset) === location.quote)
   ) {
-    if (
-      !location.quote ||
-      content.slice(location.startOffset, location.endOffset) === location.quote
-    ) {
-      return {
-        startOffset: location.startOffset,
-        endOffset: location.endOffset,
-      };
-    }
+    return {
+      startOffset: location.startOffset,
+      endOffset: location.endOffset,
+    };
   }
-  if (location.quote) {
+  if (
+    location.quote &&
+    location.startOffset === undefined &&
+    location.endOffset === undefined
+  ) {
     const idx = content.indexOf(location.quote);
-    if (idx !== -1) {
+    const lastIdx = content.lastIndexOf(location.quote);
+    if (idx !== -1 && idx === lastIdx) {
       return {
         startOffset: idx,
         endOffset: idx + location.quote.length,
       };
     }
+
   }
   return undefined;
 }

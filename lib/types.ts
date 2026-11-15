@@ -30,6 +30,8 @@ export interface ReviewFinding {
   recommendation: string;
   affectedContent: string;
   resolved: boolean;
+  resolvedAt?: string;
+  resolvedBy?: string;
   editedCorrection?: string;
   comments: ReviewComment[];
   evidenceReferences?: import("./contracts").EvidenceReference[];
@@ -40,6 +42,10 @@ export interface ReviewFinding {
   ruleId?: string | null;
   requiresHumanReview?: boolean;
   sourceDomain?: "text" | "visual";
+  reviewDecision?: import("./contracts/workflow").ReviewDecision;
+  reviewDecisionReason?: string;
+  reviewDecisionAt?: string;
+  reviewDecisionBy?: string;
 }
 
 export type ReviewStatus =
@@ -79,6 +85,7 @@ export interface ReviewSubmission {
   pastelTheme: PastelTheme;
   reviewerNotes?: string;
   providerUsed?: string;
+  fallbackUsed?: boolean;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
   ocrBlocks?: import("./contracts").OcrBlockContract[];
@@ -143,7 +150,8 @@ export interface ActivityEvent {
     | "asset_uploaded"
     | "correction_applied"
     | "comment_added"
-    | "manual_finding_added";
+    | "manual_finding_added"
+    | "finding_decision";
 }
 
 export interface AnalysisRequestPayload {

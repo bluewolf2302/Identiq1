@@ -138,6 +138,50 @@ test("Gemini Vision response validator rejects fabricated sourceId or sourceVers
   assert.equal(result.findings[0]!.sourceReference.sourceId, "SRC-ASSET-01");
 });
 
+test("Gemini Vision rejects source/version and rule/source mismatches", () => {
+  const brandCtx = adaptBrandKnowledgeToVisualContext(teraluneKnowledge);
+  const result = validateAndMapGeminiVisionResponse(
+    {
+      findings: [
+        {
+          ruleId: "IMG-01",
+          category: "visual_consistency",
+          title: "Wrong source version",
+          explanation: "The supplied source version does not match the rule.",
+          expectedValue: "Approved visual",
+          observedValue: "Incorrect visual",
+          sourceId: "SRC-ASSET-01",
+          sourceVersion: "9.9",
+          evidenceDescription: "Product region",
+          confidence: 0.9,
+          reviewStatus: "candidate",
+          severity: "HIGH",
+        },
+        {
+          ruleId: "IMG-01",
+          category: "visual_consistency",
+          title: "Wrong source association",
+          explanation: "The supplied source does not own this rule.",
+          expectedValue: "Approved visual",
+          observedValue: "Incorrect visual",
+          sourceId: "SRC-BRAND-01",
+          sourceVersion: "1.0",
+          evidenceDescription: "Product region",
+          confidence: 0.9,
+          reviewStatus: "candidate",
+          severity: "HIGH",
+        },
+      ],
+    },
+    brandCtx,
+    "asset-1",
+    1,
+  );
+
+  assert.equal(result.validationFailures, 2);
+  assert.equal(result.findings.length, 0);
+});
+
 test("Gemini Vision handles malformed JSON, empty output, and timeout without fabricating mock success", async () => {
   const brandCtx = adaptBrandKnowledgeToVisualContext(teraluneKnowledge);
   const pngBuffer = await sharp({

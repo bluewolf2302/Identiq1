@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
+import { parseAnalysisResponsePayload } from "@/lib/analysis/api-adapters";
 import {
   AnalysisResponsePayload,
   ContentType,
@@ -251,6 +252,19 @@ export default function NewReviewPage() {
       const res = await payloadPromise;
       const resContentType = res.headers.get("content-type") || "";
       const responseText = await res.text();
+      if (!res.ok) {
+        let errorMessage = "Analysis request failed.";
+        try {
+          const errorBody = JSON.parse(responseText) as { error?: unknown };
+          if (typeof errorBody.error === "string" && errorBody.error.trim()) {
+            errorMessage = errorBody.error;
+          }
+        } catch {
+          // Keep the safe default for non-JSON error responses.
+        }
+        throw new Error(errorMessage);
+      }
+
       let data: AnalysisResponsePayload;
 
       const isHtmlResponse =
@@ -271,16 +285,12 @@ export default function NewReviewPage() {
       }
 
       try {
-        data = JSON.parse(responseText) as AnalysisResponsePayload;
-      } catch (parseError) {
-        throw new Error(
-          `Unable to parse server response (${parseError instanceof Error ? parseError.message : "invalid JSON"}). Your creative is preserved — please retry.`,
-        );
-      }
-
-      if (!res.ok) {
-        const errorDetail = (data as unknown as { error?: string }).error;
-        throw new Error(errorDetail || `Analysis request failed with status ${res.status}.`);
+        data = parseAnalysisResponsePayload(JSON.parse(responseText));
+      } catch {
+        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+          throw new Error("Server returned an HTML error page. Please check API credentials and server logs.");
+        }
+        throw new Error("The analysis response was invalid. Please try again.");
       }
 
       setStage("complete");
@@ -308,6 +318,7 @@ export default function NewReviewPage() {
         findings: data.findings,
         pastelTheme: themes[Math.floor(Math.random() * themes.length)],
         providerUsed: data.providerUsed,
+        fallbackUsed: data.fallbackUsed,
         analysisStatus: data.analysisStatus ?? "COMPLETED",
         analysisRunId: data.analysisRunId,
         ocrBlocks: data.ocrBlocks,
@@ -612,6 +623,7 @@ export default function NewReviewPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-[#E7E1DA]">
           <p className="text-xs text-[#6B6560]">
             Brand: <strong className="text-[#141414]">{guidelineCollection}</strong>
+            <span className="ml-2">Multimodal OCR, visual and AI governance enabled</span>
           </p>
           <button
             type="submit"

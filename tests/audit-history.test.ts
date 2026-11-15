@@ -369,3 +369,78 @@ test("finding resolution metadata is preserved when resolved and absent when unr
   assert.equal(reopenedFinding.resolvedAt, undefined);
   assert.equal(reopenedFinding.resolvedBy, undefined);
 });
+
+test("audit history records finding decisions and reasons without changing evidence status", () => {
+  const review: ReviewSubmission = {
+    ...mockSubmission,
+    findings: [
+      {
+        ...mockSubmission.findings[0],
+        reviewDecision: "REJECT",
+        reviewDecisionReason: "Evidence does not support this finding.",
+        evidenceReferences: [
+          {
+            sourceId: "guide-1",
+            sourceType: "guideline",
+            sourceTitle: "Guide",
+            versionId: "v2",
+          },
+        ],
+      },
+    ],
+  };
+  const events: ActivityEvent[] = [
+    {
+      id: "finding-decision-1",
+      reviewId: review.id,
+      actor: "Maya Lin",
+      action: 'reject finding "Unverified organic certification": Evidence does not support this finding. in',
+      target: review.title,
+      timestamp: "2026-11-12T12:00:00.000Z",
+      type: "finding_decision",
+    },
+  ];
+
+  const entry = buildReviewAuditTrail(review, events).find(
+    (item) => item.id === "finding-decision-1",
+  );
+  assert.equal(entry?.title, "Finding Decision Recorded");
+  assert.match(entry?.action ?? "", /Evidence does not support/);
+  assert.equal(review.findings[0]?.evidenceStatus, "unverified");
+});
+
+test("audit snapshots preserve finding evidence, detector, confidence, and resolution metadata", () => {
+  const review: ReviewSubmission = {
+    ...mockSubmission,
+    findings: [
+      {
+        ...mockSubmission.findings[0],
+        evidenceReferences: [
+          {
+            sourceId: "guide-1",
+            sourceType: "guideline",
+            sourceTitle: "Guide",
+            versionId: "v2",
+          },
+        ],
+        sourceVersionIds: ["v2"],
+        detector: "ai_semantic",
+        confidence: 0.72,
+        requiresHumanReview: true,
+        resolved: true,
+        resolvedAt: "2026-11-12T11:00:00.000Z",
+        resolvedBy: "Maya Lin",
+      },
+    ],
+  };
+
+  const resolution = buildReviewAuditTrail(review, []).find(
+    (entry) => entry.category === "finding",
+  );
+  assert.equal(resolution?.details?.evidenceReferences?.[0]?.versionId, "v2");
+  assert.deepEqual(resolution?.details?.sourceVersionIds, ["v2"]);
+  assert.equal(resolution?.details?.detector, "ai_semantic");
+  assert.equal(resolution?.details?.confidence, 0.72);
+  assert.equal(resolution?.details?.requiresHumanReview, true);
+  assert.equal(resolution?.details?.resolvedBy, "Maya Lin");
+});

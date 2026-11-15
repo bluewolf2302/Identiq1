@@ -130,6 +130,26 @@ export function validateAndMapGeminiVisionResponse(
     const matchingRule = item.ruleId
       ? brandContext.rules.find((r) => r.ruleId.toUpperCase() === item.ruleId!.toUpperCase())
       : undefined;
+    if (item.ruleId && !matchingRule) {
+      validationFailures++;
+      continue;
+    }
+    if (
+      matchingRule &&
+      ((item.sourceId && item.sourceId !== matchingRule.sourceId) ||
+        (item.sourceVersion && item.sourceVersion !== matchingRule.sourceVersion) ||
+        (item.excerpt &&
+          !normalizeEvidenceText(matchingRule.excerpt).includes(
+            normalizeEvidenceText(item.excerpt),
+          )))
+    ) {
+      validationFailures++;
+      continue;
+    }
+    if (!matchingRule && (item.sourceId || item.sourceVersion || item.excerpt)) {
+      validationFailures++;
+      continue;
+    }
 
     const resolvedSourceId = item.sourceId ?? matchingRule?.sourceId ?? null;
     const resolvedVersion = item.sourceVersion ?? matchingRule?.sourceVersion ?? null;
@@ -167,6 +187,10 @@ export function validateAndMapGeminiVisionResponse(
   }
 
   return { findings: validFindings, validationFailures };
+}
+
+function normalizeEvidenceText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
 }
 
 function classifyProviderError(error: unknown): GeminiVisionError {

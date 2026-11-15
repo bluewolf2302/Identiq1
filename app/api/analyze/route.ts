@@ -19,9 +19,12 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
-    console.error("Unhandled API analysis error:", err);
+    console.error(
+      "Unhandled API analysis error:",
+      err instanceof Error ? err.name : "UnknownError",
+    );
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error during analysis." },
+      { error: "Unable to complete brand governance analysis." },
       { status: 500 },
     );
   }
