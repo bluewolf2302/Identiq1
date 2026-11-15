@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   output: "standalone",
   devIndicators: {
     position: "bottom-right",
@@ -12,15 +11,12 @@ const nextConfig: NextConfig = {
   ],
   cacheComponents: true,
   partialPrefetching: true,
-  serverExternalPackages: ["sharp", "tesseract.js", "pdfjs-dist", "@napi-rs/canvas"],
-  turbopack: {
-    rules: {
-      "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
-        as: "*.css",
-      },
-    },
-  },
+  serverExternalPackages: [
+    "sharp",
+    "tesseract.js",
+    "pdfjs-dist",
+    "@napi-rs/canvas",
+  ],
 };
 
 export default nextConfig;
