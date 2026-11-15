@@ -53,23 +53,23 @@ export function DynamicComplianceChart({
   return (
     <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 sm:p-5 space-y-4">
       {/* Header & View Mode Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-[#EFECE7]">
-        <div>
-          <p className="text-xs font-bold text-[#141414] flex items-center gap-1.5">
-            <BarChart3 className="w-3.5 h-3.5 text-[#141414]" />
-            Brand Governance Analytics
+      <div className="flex flex-col gap-2.5 pb-2.5 border-b border-[#EFECE7]">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-bold text-[#141414] flex items-center gap-1.5 min-w-0">
+            <BarChart3 className="w-3.5 h-3.5 text-[#141414] shrink-0" />
+            <span className="truncate">Brand Governance Analytics</span>
           </p>
-          <p className="text-[11px] text-[#6B6560] mt-0.5">
-            {reviews.length} {reviews.length === 1 ? "review" : "reviews"} analyzed
+          <p className="text-[11px] text-[#6B6560] shrink-0 tabular-nums">
+            {reviews.length} {reviews.length === 1 ? "review" : "reviews"}
           </p>
         </div>
 
-        {/* View Mode Pills */}
-        <div className="flex items-center gap-1 bg-[#FAF8F6] p-1 rounded-full border border-[#E7E1DA] overflow-x-auto">
+        {/* View Mode Pills (4-column non-clipping bar) */}
+        <div className="grid grid-cols-4 gap-1 bg-[#FAF8F6] p-1 rounded-full border border-[#E7E1DA] w-full">
           <button
             type="button"
             onClick={() => setChartViewMode("timeline")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+            className={`px-1.5 py-1 rounded-full text-[11px] font-semibold transition-colors truncate ${
               viewMode === "timeline"
                 ? "bg-[#141414] text-white shadow-xs"
                 : "text-[#524E4A] hover:text-[#141414]"
@@ -80,7 +80,7 @@ export function DynamicComplianceChart({
           <button
             type="button"
             onClick={() => setChartViewMode("status")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+            className={`px-1.5 py-1 rounded-full text-[11px] font-semibold transition-colors truncate ${
               viewMode === "status"
                 ? "bg-[#141414] text-white shadow-xs"
                 : "text-[#524E4A] hover:text-[#141414]"
@@ -91,7 +91,7 @@ export function DynamicComplianceChart({
           <button
             type="button"
             onClick={() => setChartViewMode("severity")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+            className={`px-1.5 py-1 rounded-full text-[11px] font-semibold transition-colors truncate ${
               viewMode === "severity"
                 ? "bg-[#141414] text-white shadow-xs"
                 : "text-[#524E4A] hover:text-[#141414]"
@@ -102,13 +102,13 @@ export function DynamicComplianceChart({
           <button
             type="button"
             onClick={() => setChartViewMode("category")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+            className={`px-1.5 py-1 rounded-full text-[11px] font-semibold transition-colors truncate ${
               viewMode === "category"
                 ? "bg-[#141414] text-white shadow-xs"
                 : "text-[#524E4A] hover:text-[#141414]"
             }`}
           >
-            Categories
+            Topics
           </button>
         </div>
       </div>
@@ -137,8 +137,8 @@ export function DynamicComplianceChart({
         <div className="space-y-3">
           {/* Active Month Detail Badge */}
           {activeBucket && (
-            <div className="flex items-center justify-between text-[11px] bg-[#FAF8F6] border border-[#E7E1DA] rounded-xl px-3 py-2">
-              <span className="font-semibold text-[#141414]">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] bg-[#FAF8F6] border border-[#E7E1DA] rounded-xl px-3 py-2">
+              <span className="font-semibold text-[#141414] truncate">
                 Period: {activeBucket.label}
               </span>
               <span className="tabular-nums font-medium text-[#524E4A]">
@@ -148,7 +148,7 @@ export function DynamicComplianceChart({
           )}
 
           {/* Dynamic Timeline Bars */}
-          <div className="grid grid-flow-col auto-cols-fr gap-2 items-end h-32 pt-2 border-b border-[#EFECE7] pb-2">
+          <div className="grid grid-flow-col auto-cols-fr gap-1.5 items-end h-32 pt-2 border-b border-[#EFECE7] pb-2 min-w-0">
             {timeline.map((bucket) => {
               const isSelected = activeBucket?.periodKey === bucket.periodKey;
               // Normalize height relative to maximum

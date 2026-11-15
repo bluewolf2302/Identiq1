@@ -49,6 +49,18 @@ import {
   DemoActivityRepository,
 } from "@/lib/repositories";
 import { CheckCircle2, Info, X, ShieldAlert } from "lucide-react";
+import {
+  createDefaultViewerProfile,
+  DEFAULT_VIEWER_ROLE,
+  FALLBACK_VIEWER_NAME,
+  loadViewerProfile,
+  normalizeViewerRole,
+  PresetAvatarId,
+  resolveActiveActorIdentity,
+  saveViewerProfile,
+  validateViewerName,
+  ViewerProfile,
+} from "@/lib/viewer-profile";
 
 interface ToastMessage {
   id: string;
@@ -128,14 +140,33 @@ export interface IdentiqContextValue {
   enterSharedDemoMode: () => Promise<void>;
   enterLocalDemoMode: () => void;
   notify: (text: string, tone?: "success" | "info" | "error") => void;
+  viewerProfile: ViewerProfile;
+  profileHydrated: boolean;
+  guidedTourOpen: boolean;
+  setGuidedTourOpen: (open: boolean) => void;
+  completeOnboarding: (input: {
+    name: string;
+    role?: string;
+    avatarId: PresetAvatarId;
+    customAvatarDataUrl?: string;
+    startTour?: boolean;
+  }) => { success: boolean; error?: string };
+  updateViewerProfile: (patch: {
+    name?: string;
+    role?: string;
+    avatarId?: PresetAvatarId;
+    customAvatarDataUrl?: string | null;
+  }) => { success: boolean; error?: string };
+  markGuidedTourCompleted: () => void;
+  replayGuidedTour: () => void;
 }
 
 const STORAGE_KEY = "identiq_workspace_v2";
 const ORG_STORAGE_KEY = "identiq_org_id";
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
-  reviewerName: "Maya Lin",
-  reviewerRole: "Brand Governance Lead",
+  reviewerName: FALLBACK_VIEWER_NAME,
+  reviewerRole: DEFAULT_VIEWER_ROLE,
   autoFlagUnverified: true,
   strictClaimsMode: true,
   minimumApprovalScore: 85,
@@ -152,6 +183,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   const [activeReviewId, setActiveReviewId] = useState<string>(INITIAL_REVIEWS[0].id);
   const [hydrated, setHydrated] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Viewer onboarding & guided tour state (separate from Supabase auth/org profile)
+  const [viewerProfile, setViewerProfile] = useState<ViewerProfile>(() =>
+    createDefaultViewerProfile()
+  );
+  const [profileHydrated, setProfileHydrated] = useState(false);
+  const [guidedTourOpen, setGuidedTourOpen] = useState(false);
 
   // Multi-mode persistence & Auth state
   const [organisationId, setOrganisationId] = useState<string | null>(null);
@@ -203,11 +241,25 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     return res.data || [];
   }, []);
 
-  // Hydration & initial session restoration
+  // Hydration & initial session + viewer profile restoration
   useEffect(() => {
     let isCancelled = false;
 
     async function initializeAuthAndData() {
+      await Promise.resolve();
+      if (isCancelled) return;
+
+      const loadedProfile = loadViewerProfile();
+      setViewerProfile(loadedProfile);
+      setProfileHydrated(true);
+      if (loadedProfile.onboardingCompleted && loadedProfile.name) {
+        setSettings((prev) => ({
+          ...prev,
+          reviewerName: loadedProfile.name,
+          reviewerRole: loadedProfile.role || prev.reviewerRole,
+        }));
+      }
+
       try {
         const { session: activeSession } = await restoreSession();
 
@@ -306,7 +358,18 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
               if (Array.isArray(parsed.knowledge)) setKnowledge(parsed.knowledge);
               if (Array.isArray(parsed.assets)) setAssets(parsed.assets);
               if (Array.isArray(parsed.activities)) setActivities(parsed.activities);
-              if (parsed.settings) setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
+              if (parsed.settings) {
+                setSettings((prev) => ({
+                  ...DEFAULT_SETTINGS,
+                  ...parsed.settings,
+                  reviewerName: loadedProfile.onboardingCompleted
+                    ? loadedProfile.name
+                    : parsed.settings.reviewerName || prev.reviewerName,
+                  reviewerRole: loadedProfile.onboardingCompleted
+                    ? loadedProfile.role
+                    : parsed.settings.reviewerRole || prev.reviewerRole,
+                }));
+              }
             }
           }
         }
@@ -405,7 +468,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         if (remoteActivities.length > 0) {
           setActivities(remoteActivities);
         }
-        notify("Synchronized with Shared Demo database", "info");
+        notify("Workspace refreshed", "info");
         return;
       }
 
@@ -439,9 +502,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       if (remoteActivities.length > 0) {
         setActivities(remoteActivities);
       }
-      notify("Synchronized with Supabase database", "info");
+      notify("Workspace synced", "info");
     } catch (err: unknown) {
-      notify(err instanceof Error ? err.message : "Failed to load database records", "error");
+      notify(err instanceof Error ? err.message : "Failed to refresh workspace", "error");
     } finally {
       setIsSyncing(false);
     }
@@ -567,7 +630,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       setUserOrganisations([]);
       localStorage.removeItem(ORG_STORAGE_KEY);
       updatePersistenceStatus(false, false);
-      notify("Signed out. Switched to local demo workspace.", "info");
+      notify("Signed out", "info");
     } catch (err) {
       notify(err instanceof Error ? err.message : "Error during sign out", "error");
     } finally {
@@ -705,19 +768,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           organisationId: organisationId || "e0000000-0000-0000-0000-000000000001",
           brandId: brandId || "b0000000-0000-0000-0000-000000000001",
         });
-        notify(
-          persistenceMode === "SHARED_DEMO"
-            ? `"${review.title}" submitted (shared demo persisted)`
-            : "Review submitted and persisted to database"
-        );
+        notify(`"${review.title}" submitted for review`);
       } catch (err: unknown) {
         // Rollback optimistic state
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist review submission", "error");
+        notify(err instanceof Error ? err.message : "Failed to save review submission", "error");
       }
-    } else if (persistenceMode === "CONFIGURED_UNAUTHENTICATED") {
-      notify("Supabase configured but unauthenticated. Saved locally for demo.", "info");
     } else {
       notify("Review added to workspace");
     }
@@ -786,11 +843,11 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           reviewerNotes,
           actorName: settings.reviewerName,
         });
-        notify(`Status updated to ${status} (persisted)`);
+        notify(`Status updated to ${status}`);
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist status change", "error");
+        notify(err instanceof Error ? err.message : "Failed to update review status", "error");
       }
     } else {
       notify(`Status updated to ${status}`);
@@ -844,17 +901,17 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           findingId,
           actorName: settings.reviewerName,
         });
-        // Sync recomputed score from database
+        // Sync recomputed score
         setReviews((prev) =>
           prev.map((r) =>
             r.id === reviewId ? { ...r, complianceScore: res.complianceScore } : r
           )
         );
-        notify(res.resolved ? "Finding resolved (persisted)" : "Finding reopened (persisted)");
+        notify(res.resolved ? "Finding marked as resolved" : "Finding reopened");
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist finding resolution", "error");
+        notify(err instanceof Error ? err.message : "Failed to update finding status", "error");
       }
     } else {
       notify(resolvedNow ? "Finding marked as resolved" : "Finding reopened");
@@ -941,13 +998,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         );
         notify(
           applyToCopy
-            ? "Correction applied to copy & resolved (persisted)"
-            : "Correction draft saved (persisted)"
+            ? "Correction applied to copy & resolved"
+            : "Correction draft saved"
         );
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist correction", "error");
+        notify(err instanceof Error ? err.message : "Failed to save correction", "error");
       }
     } else {
       notify(applyToCopy ? "Correction applied to copy & resolved" : "Correction draft saved");
@@ -1023,15 +1080,15 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         });
         notify(
           decision === "APPROVE"
-            ? "Finding accepted (persisted)"
+            ? "Finding accepted"
             : decision === "REJECT"
-            ? "Finding rejected (persisted)"
-            : "Finding marked for human review (persisted)"
+            ? "Finding rejected"
+            : "Finding marked for human review"
         );
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist decision", "error");
+        notify(err instanceof Error ? err.message : "Failed to save decision", "error");
       }
     } else {
       notify(
@@ -1100,11 +1157,11 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           authorName: settings.reviewerName,
           authorRole: settings.reviewerRole,
         });
-        notify("Reviewer comment added (persisted)");
+        notify("Reviewer comment added");
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist comment", "error");
+        notify(err instanceof Error ? err.message : "Failed to save comment", "error");
       }
     } else {
       notify("Reviewer comment added");
@@ -1157,11 +1214,11 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
             r.id === reviewId ? { ...r, complianceScore: res.complianceScore } : r
           )
         );
-        notify("Manual governance finding added (persisted)");
+        notify("Manual governance finding added");
       } catch (err: unknown) {
         setReviews(prevReviews);
         setActivities(prevActivities);
-        notify(err instanceof Error ? err.message : "Failed to persist manual finding", "error");
+        notify(err instanceof Error ? err.message : "Failed to save manual finding", "error");
       }
     } else {
       notify("Manual governance finding added");
@@ -1225,13 +1282,17 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resetDemoWorkspace = async () => {
+    const activeIdentity = resolveActiveActorIdentity({
+      viewerProfile,
+      authUser: user,
+    });
     if (persistenceMode === "SHARED_DEMO") {
       setIsSyncing(true);
       try {
         const res = await fetch("/api/demo/reset", { method: "POST" });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.message || "Failed to reset shared demo database");
+          throw new Error(err.message || "Failed to reset sample data");
         }
         const [remoteReviews, remoteActivities] = await Promise.all([
           reviewRepo.fetchReviews(),
@@ -1244,9 +1305,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         if (remoteActivities.length > 0) {
           setActivities(remoteActivities);
         }
-        notify("Shared Demo Workspace restored to initial hosted database state");
+        notify("Sample workspace data restored");
       } catch (err) {
-        notify(err instanceof Error ? err.message : "Failed to reset demo workspace", "error");
+        notify(err instanceof Error ? err.message : "Failed to reset sample data", "error");
       } finally {
         setIsSyncing(false);
       }
@@ -1256,9 +1317,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       setKnowledge(INITIAL_KNOWLEDGE);
       setAssets(INITIAL_ASSETS);
       setActivities(INITIAL_ACTIVITY);
-      setSettings(DEFAULT_SETTINGS);
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        reviewerName: activeIdentity.name,
+        reviewerRole: activeIdentity.role,
+      });
       setActiveReviewId(INITIAL_REVIEWS[0].id);
-      notify("Demo workspace restored to initial sample data");
+      notify("Sample workspace data restored");
     }
   };
 
@@ -1282,9 +1347,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       if (remoteActivities.length > 0) {
         setActivities(remoteActivities);
       }
-      notify("Entered Shared Demo Workspace — Hosted Database", "info");
+      notify("Demo workspace ready", "info");
     } catch (err) {
-      notify(err instanceof Error ? err.message : "Loaded demo workspace with local fallback", "info");
+      notify(err instanceof Error ? err.message : "Loaded demo workspace", "info");
     } finally {
       setIsSyncing(false);
     }
@@ -1295,8 +1360,106 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     updatePersistenceStatus(false, false, false);
     setReviewRepo(new LocalReviewRepository(INITIAL_REVIEWS));
     setActivityRepo(new LocalActivityRepository(INITIAL_ACTIVITY));
-    notify("Switched to Local Offline Demo (In-Memory)", "info");
+    notify("Switched to local workspace", "info");
   }, [notify, updatePersistenceStatus]);
+
+  const completeOnboarding = useCallback(
+    (input: {
+      name: string;
+      role?: string;
+      avatarId: PresetAvatarId;
+      customAvatarDataUrl?: string;
+      startTour?: boolean;
+    }) => {
+      const nameCheck = validateViewerName(input.name);
+      if (!nameCheck.valid) {
+        return { success: false, error: nameCheck.error };
+      }
+      const cleanRole = normalizeViewerRole(input.role);
+      const nextProfile: ViewerProfile = {
+        name: nameCheck.normalized,
+        role: cleanRole,
+        avatarId: input.avatarId,
+        customAvatarDataUrl: input.customAvatarDataUrl,
+        onboardingCompleted: true,
+        guidedTourCompleted: input.startTour === false,
+        updatedAt: new Date().toISOString(),
+      };
+      setViewerProfile(nextProfile);
+      saveViewerProfile(nextProfile);
+      setSettings((prev) => ({
+        ...prev,
+        reviewerName: nextProfile.name,
+        reviewerRole: nextProfile.role,
+      }));
+      if (input.startTour !== false) {
+        setGuidedTourOpen(true);
+      }
+      notify(`Welcome to Identiq, ${nextProfile.name}`);
+      return { success: true };
+    },
+    [notify]
+  );
+
+  const updateViewerProfile = useCallback(
+    (patch: {
+      name?: string;
+      role?: string;
+      avatarId?: PresetAvatarId;
+      customAvatarDataUrl?: string | null;
+    }) => {
+      const nextNameRaw = patch.name !== undefined ? patch.name : viewerProfile.name;
+      const nameCheck = validateViewerName(nextNameRaw);
+      if (!nameCheck.valid) {
+        return { success: false, error: nameCheck.error };
+      }
+      const nextRole =
+        patch.role !== undefined ? normalizeViewerRole(patch.role) : viewerProfile.role;
+      const nextCustomAvatar =
+        patch.customAvatarDataUrl === null
+          ? undefined
+          : patch.customAvatarDataUrl !== undefined
+          ? patch.customAvatarDataUrl
+          : viewerProfile.customAvatarDataUrl;
+
+      const nextProfile: ViewerProfile = {
+        ...viewerProfile,
+        name: nameCheck.normalized,
+        role: nextRole,
+        avatarId: patch.avatarId ?? viewerProfile.avatarId,
+        customAvatarDataUrl: nextCustomAvatar,
+        onboardingCompleted: true,
+        updatedAt: new Date().toISOString(),
+      };
+      setViewerProfile(nextProfile);
+      saveViewerProfile(nextProfile);
+      setSettings((prev) => ({
+        ...prev,
+        reviewerName: nextProfile.name,
+        reviewerRole: nextProfile.role,
+      }));
+      return { success: true };
+    },
+    [viewerProfile]
+  );
+
+  const markGuidedTourCompleted = useCallback(() => {
+    setGuidedTourOpen(false);
+    setViewerProfile((prev) => {
+      if (!prev.onboardingCompleted) return prev;
+      const next: ViewerProfile = {
+        ...prev,
+        guidedTourCompleted: true,
+        updatedAt: new Date().toISOString(),
+      };
+      saveViewerProfile(next);
+      return next;
+    });
+  }, []);
+
+  const replayGuidedTour = useCallback(() => {
+    setGuidedTourOpen(true);
+  }, []);
 
   return (
     <IdentiqContext.Provider
@@ -1340,6 +1503,14 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         enterSharedDemoMode,
         enterLocalDemoMode,
         notify,
+        viewerProfile,
+        profileHydrated,
+        guidedTourOpen,
+        setGuidedTourOpen,
+        completeOnboarding,
+        updateViewerProfile,
+        markGuidedTourCompleted,
+        replayGuidedTour,
       }}
     >
       {children}

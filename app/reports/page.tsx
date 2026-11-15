@@ -208,15 +208,14 @@ function ReportsPageContent() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-[#CDEEE0] text-[#14532D]">
-              Reporting & Export Center
+              Reporting &amp; Export Center
             </span>
-            <span className="text-xs text-[#8C827A]">• Phase 4 Operational</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#141414] tracking-tight font-display">
-            Governance Reports & Export
+            Governance Reports &amp; Export
           </h1>
           <p className="text-sm text-[#5A5550] mt-1">
-            Generate formal brand compliance audits, review dossiers, and RFC 4180 CSV exports
+            Generate formal brand compliance audits, review dossiers, and structured CSV exports
           </p>
         </div>
 

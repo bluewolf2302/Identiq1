@@ -21,7 +21,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
       {/* 1. Average Brand Compliance */}
-      <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#6B6560] mb-1">
             <span className="text-xs font-medium">Compliance Score</span>
@@ -37,7 +37,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 2. Total Reviews */}
-      <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#6B6560] mb-1">
             <span className="text-xs font-medium">Total Reviews</span>
@@ -51,7 +51,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 3. Approved Reviews */}
-      <div className="bg-[#CDEEE0]/55 border border-[#BAE0D0] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#CDEEE0]/55 border border-[#BAE0D0] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#3F5E50] mb-1">
             <span className="text-xs font-semibold">Approved</span>
@@ -65,7 +65,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 4. Pending Reviews */}
-      <div className="bg-[#FAF0C8]/65 border border-[#EDE1B4] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#FAF0C8]/65 border border-[#EDE1B4] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#5E5225] mb-1">
             <span className="text-xs font-semibold">Pending</span>
@@ -79,7 +79,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 5. Rejected / Changes Requested */}
-      <div className="bg-[#F6D5DA]/60 border border-[#EBC3CA] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#F6D5DA]/60 border border-[#EBC3CA] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#7F1D1D] mb-1">
             <span className="text-xs font-semibold">Changes Requested</span>
@@ -93,7 +93,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 6. Flagged Reviews */}
-      <div className="bg-[#E2DBFB]/60 border border-[#D3CAEE] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#E2DBFB]/60 border border-[#D3CAEE] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#4A3E7A] mb-1">
             <span className="text-xs font-semibold">Flagged Reviews</span>
@@ -107,7 +107,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 7. Total Open Findings */}
-      <div className="bg-[#DDF0FA]/70 border border-[#CBE2EF] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#DDF0FA]/70 border border-[#CBE2EF] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#1E3A8A] mb-1">
             <span className="text-xs font-semibold">Open Findings</span>
@@ -121,7 +121,7 @@ export function KpiCardGrid({ stats }: KpiCardGridProps) {
       </div>
 
       {/* 8. High Severity Findings */}
-      <div className="bg-[#F6D5DA]/85 border border-[#EBC3CA] rounded-2xl p-4 flex flex-col justify-between">
+      <div className="bg-[#F6D5DA]/85 border border-[#EBC3CA] rounded-2xl p-4 flex flex-col justify-between min-w-0">
         <div>
           <div className="flex items-center justify-between text-[#7F1D1D] mb-1">
             <span className="text-xs font-semibold">High Severity</span>

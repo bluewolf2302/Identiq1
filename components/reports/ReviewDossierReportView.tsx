@@ -117,18 +117,18 @@ export function ReviewDossierReportView({
           </div>
 
           <div>
-            <div className="text-[#8C827A] flex items-center gap-1.5 mb-1">
-              <Cpu className="w-3.5 h-3.5" />
-              <span>AI Analysis Engine</span>
-            </div>
-            <div className="font-semibold text-[#141414]">
-              {review.providerUsed || "Gemini 2.5 Flash"}
-              {review.analysisStatus && (
-                <span className="ml-1.5 text-[10px] text-[#8C827A] font-normal">
-                  ({review.analysisStatus})
-                </span>
-              )}
-            </div>
+              <div className="text-[#8C827A] flex items-center gap-1.5 mb-1">
+                <Cpu className="w-3.5 h-3.5" />
+                <span>Review Engine</span>
+              </div>
+              <div className="font-semibold text-[#141414]">
+                Automated Governance Review
+                {review.analysisStatus && (
+                  <span className="ml-1.5 text-[10px] text-[#8C827A] font-normal">
+                    ({review.analysisStatus})
+                  </span>
+                )}
+              </div>
           </div>
         </div>
 

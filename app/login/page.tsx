@@ -8,14 +8,12 @@ import {
   Mail,
   User,
   ArrowRight,
-  Database,
   Building2,
   AlertCircle,
   Loader2,
   Sparkles,
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
-import { getSupabaseIntegrationStatus } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,8 +39,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const configStatus = getSupabaseIntegrationStatus();
-
   // Redirect to dashboard if already authenticated with an organisation
   useEffect(() => {
     if (session && organisationId) {
@@ -67,7 +63,6 @@ export default function LoginPage() {
         if (!res.success) {
           setErrorMsg(res.error || "Login failed. Check your credentials.");
         } else {
-          // If the user already has an org, redirect to dashboard
           if (organisationId) {
             router.push("/");
           }
@@ -126,7 +121,7 @@ export default function LoginPage() {
             </h1>
             <p className="text-xs text-[#6B6560]">
               Signed in as <span className="font-semibold text-[#141414]">{user?.email}</span>. Create
-              an organisation to establish brand tenancy and RLS permissions.
+              an organisation to organize your brand guidelines and review team.
             </p>
           </div>
 
@@ -197,32 +192,13 @@ export default function LoginPage() {
             <ShieldCheck className="w-6 h-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-[#141414]">
-            {mode === "signin" ? "Welcome back to Identiq" : "Create your Identiq account"}
+            {mode === "signin" ? "Team Workspace Sign In" : "Create your Identiq account"}
           </h1>
           <p className="text-xs text-[#6B6560]">
             {mode === "signin"
-              ? "Sign in to access your persistent brand governance workspace"
+              ? "Sign in to access your shared brand governance workspace"
               : "Register to manage brand evidence, reviews, and compliance records"}
           </p>
-        </div>
-
-        {/* Supabase Status Pill */}
-        <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-[#F3EDE8] border border-[#E7E1DA] text-xs">
-          <div className="flex items-center gap-2 text-[#3F3B37]">
-            <Database className="w-3.5 h-3.5 text-[#141414]" />
-            <span className="font-medium">
-              {configStatus.configured ? "Supabase Configured" : "Local Prototype Mode"}
-            </span>
-          </div>
-          <span
-            className={`font-mono text-[11px] px-2 py-0.5 rounded-full ${
-              configStatus.configured
-                ? "bg-[#CDEEE0] text-[#14532D]"
-                : "bg-[#FCE3D8] text-[#7C2D12]"
-            }`}
-          >
-            {configStatus.configured ? "Ready" : "Offline"}
-          </span>
         </div>
 
         {/* Tab switch */}
@@ -278,7 +254,7 @@ export default function LoginPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Maya Lin"
+                    placeholder="Your full name"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] focus:outline-none focus:border-[#141414]"
@@ -362,10 +338,10 @@ export default function LoginPage() {
               await enterSharedDemoMode();
               router.push("/");
             }}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full bg-[#F0FDF4] border border-[#BBF7D0] text-xs font-semibold text-[#166534] hover:bg-[#DCFCE7] transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full bg-[#CDEEE0]/50 border border-[#BAE0D0] text-xs font-semibold text-[#14532D] hover:bg-[#CDEEE0] transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#166534]" />
-            Explore Shared Demo Workspace (Hosted DB)
+            <Sparkles className="w-3.5 h-3.5 text-[#14532D]" />
+            Continue in Shared Demo Workspace
           </button>
 
           <button
@@ -376,12 +352,8 @@ export default function LoginPage() {
             }}
             className="w-full flex items-center justify-center gap-2 py-2 rounded-full bg-[#FAF8F6] border border-[#E7E1DA] text-xs font-medium text-[#524E4A] hover:bg-[#F3EDE8] transition-colors"
           >
-            Continue in Local Offline Demo (In-Memory)
+            Continue in Browser Session Workspace
           </button>
-
-          <p className="text-[11px] text-center text-[#8C847D]">
-            Shared demo persists to hosted Supabase under an isolated demo tenancy.
-          </p>
         </div>
       </div>
     </div>

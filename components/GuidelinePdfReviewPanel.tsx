@@ -317,7 +317,7 @@ export function GuidelinePdfReviewPanel() {
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-[#6B6560] mb-1">
-            Temporary in-memory review workspace
+            Session PDF review workspace
           </p>
           <h2 className="text-xl font-bold tracking-tight text-[#141414]">
             Guideline PDFs
@@ -352,8 +352,7 @@ export function GuidelinePdfReviewPanel() {
               Add a guideline PDF
             </h2>
             <p className="mt-1 text-xs text-[#6B6560]">
-              Text extraction runs through the temporary server route. The PDF
-              file itself is not retained.
+              Text is extracted from your uploaded PDF for draft rule selection; the source file itself is not stored.
             </p>
           </div>
 
@@ -439,12 +438,11 @@ export function GuidelinePdfReviewPanel() {
               <Info className="w-4 h-4 mt-0.5 text-[#24516B] shrink-0" />
               <div>
                 <h2 className="text-sm font-bold text-[#141414]">
-                  Temporary review behavior
+                  Session draft behavior
                 </h2>
                 <p className="mt-1 text-xs leading-relaxed text-[#3F3B37]">
-                  Drafts and rule decisions exist only in this browser session.
-                  They are not shared, persisted, approved, or available to the
-                  governance engine.
+                  Drafts and rule decisions stay inside this review session and
+                  remain separate from approved Knowledge Hub rules until published.
                 </p>
               </div>
             </div>
@@ -452,14 +450,14 @@ export function GuidelinePdfReviewPanel() {
 
           {loadError && (
             <p role="alert" className="text-xs text-[#7F1D1D]">
-              Could not load in-memory drafts: {loadError}
+              Could not load session drafts: {loadError}
             </p>
           )}
 
           {documents.length > 0 && (
             <label className="block bg-white border border-[#E7E1DA] rounded-2xl p-4">
               <span className="block text-xs font-semibold text-[#3F3B37] mb-1.5">
-                In-memory guideline drafts
+                Session guideline drafts
               </span>
               <select
                 value={activeDocumentKey}
