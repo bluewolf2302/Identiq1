@@ -17,6 +17,7 @@ import {
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
+import { getClientAuthToken } from "@/lib/supabase/client";
 import { parseAnalysisResponsePayload } from "@/lib/analysis/api-adapters";
 import {
   AnalysisResponsePayload,
@@ -65,10 +66,15 @@ export default function NewReviewPage() {
   const router = useRouter();
   const {
     knowledge,
+    workspaceBrands,
+    selectedBrandId,
+    selectBrand,
     addReview,
     viewerProfile,
     user,
+    session,
     notify,
+    organisationId,
     brandId,
     brandName,
     persistenceMode,
@@ -78,6 +84,7 @@ export default function NewReviewPage() {
 
   const [title, setTitle] = useState("");
   const [contentType, setContentType] = useState<ContentType>("Campaign Copy");
+  const [chosenBrandId, setChosenBrandId] = useState<string>("");
   const [guidelineCollection, setGuidelineCollection] = useState(GUIDELINE_COLLECTIONS[0]);
   const [textContent, setTextContent] = useState("");
   const [assetName, setAssetName] = useState<string | undefined>(undefined);
@@ -91,6 +98,11 @@ export default function NewReviewPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [stage, setStage] = useState<SubmissionStage>("idle");
   const [isLoadingSample, setIsLoadingSample] = useState(false);
+
+  const activeBrandChoiceId =
+    chosenBrandId || selectedBrandId || workspaceBrands[0]?.brandId || "";
+  const activeBrandChoice =
+    workspaceBrands.find((b) => b.brandId === activeBrandChoiceId) ?? null;
 
   const isSubmitting = stage !== "idle" && stage !== "complete";
 
@@ -198,7 +210,11 @@ export default function NewReviewPage() {
       };
       setTitle("Teralune Summer Refreshment Advertisement");
       setContentType("Campaign Copy");
+      setChosenBrandId("demo-brand-teralune");
       setGuidelineCollection("Teralune Brand Identity & AI Guidelines v1.0");
+      if (workspaceBrands.some((b) => b.brandId === "demo-brand-teralune")) {
+        void selectBrand("demo-brand-teralune");
+      }
       setTextContent(""); // Let OCR + PDF text extraction read the actual PDF!
       setAssetName(data.fileName);
       setAssetMimeType(data.mimeType);
@@ -220,7 +236,10 @@ export default function NewReviewPage() {
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId) {
+    const submissionBrandId =
+      activeBrandChoice?.brandId || brandId || undefined;
+
+    if (persistenceMode === "AUTHENTICATED_SUPABASE" && !submissionBrandId) {
       setErrorMessage(
         "Cannot submit review: No active brand profile is configured for this organisation. Reviews in authenticated mode require an active brand."
       );
@@ -248,15 +267,36 @@ export default function NewReviewPage() {
       const approvedRules = knowledge
         .filter((k) => k.status === "Approved")
         .map((k) => `${k.title}: ${k.content}`);
+      const effectiveGuidelineLabel = activeBrandChoice
+        ? activeBrandChoice.brandId === "demo-brand-teralune"
+          ? "Teralune Brand Identity & AI Guidelines v1.0"
+          : `${activeBrandChoice.brandName}${
+              activeBrandChoice.latestPublishedVersion
+                ? ` (${activeBrandChoice.latestPublishedVersion})`
+                : ""
+            }`
+        : guidelineCollection;
+
+      const token = session?.accessToken || getClientAuthToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token && persistenceMode === "AUTHENTICATED_SUPABASE") {
+        headers.Authorization = `Bearer ${token}`;
+      }
 
       setStage("uploading");
       const payloadPromise = fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           title: title.trim(),
           contentType,
-          guidelineCollection,
+          guidelineCollection: effectiveGuidelineLabel,
+          ...(submissionBrandId ? { brandId: submissionBrandId } : {}),
+          ...(persistenceMode === "AUTHENTICATED_SUPABASE" && organisationId
+            ? { organisationId }
+            : {}),
           textContent: textContent.trim(),
           submissionId,
           assetName,
@@ -319,11 +359,24 @@ export default function NewReviewPage() {
       const firstPagePreview = data.visualSummary?.pages.find((p) => p.previewDataUrl)
         ?.previewDataUrl;
 
+      const resolvedBrandLabel = activeBrandChoice
+        ? activeBrandChoice.brandId === "demo-brand-teralune"
+          ? "Teralune Brand Identity & AI Guidelines v1.0"
+          : `${activeBrandChoice.brandName}${
+              data.brandVersionId || activeBrandChoice.latestPublishedVersion
+                ? ` (${data.brandVersionId || activeBrandChoice.latestPublishedVersion})`
+                : ""
+            }`
+        : guidelineCollection;
+
       const newReview: ReviewSubmission = {
         id: newId,
+        brandId: data.brandId ?? submissionBrandId,
+        brandName: data.brandName ?? activeBrandChoice?.brandName ?? brandName ?? undefined,
+        brandVersionId: data.brandVersionId ?? activeBrandChoice?.latestPublishedVersion,
         title: title.trim(),
         contentType,
-        guidelineCollection,
+        guidelineCollection: resolvedBrandLabel,
         submittedBy: actor.name,
         submittedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
         status: data.findings.some((f) => !f.resolved && f.severity === "high")
@@ -339,11 +392,12 @@ export default function NewReviewPage() {
         fallbackUsed: data.fallbackUsed,
         analysisStatus: data.analysisStatus ?? "COMPLETED",
         analysisRunId: data.analysisRunId,
+        contextWarnings: data.contextWarnings,
         ocrBlocks: data.ocrBlocks,
         visualSummary: data.visualSummary,
       };
 
-      await addReview(newReview, brandId || undefined);
+      await addReview(newReview, submissionBrandId);
       if (data.analysisStatus === "PARTIAL") {
         notify(
           `Review ready (${data.findings.length} findings, partial AI coverage)`,
@@ -374,7 +428,16 @@ export default function NewReviewPage() {
         </div>
         <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#CDEEE0]/70 border border-[#BAE0D0] text-xs font-semibold text-[#14532D]">
           <ShieldCheck className="w-4 h-4 shrink-0" />
-          <span>Active Guide: {guidelineCollection}</span>
+          <span>
+            Active Brand:{" "}
+            {activeBrandChoice
+              ? `${activeBrandChoice.brandName}${
+                  activeBrandChoice.latestPublishedVersion
+                    ? ` · ${activeBrandChoice.latestPublishedVersion}`
+                    : ""
+                }`
+              : guidelineCollection}
+          </span>
         </div>
       </div>
 
@@ -489,21 +552,52 @@ export default function NewReviewPage() {
               htmlFor="guideline-collection"
               className="block text-xs font-semibold text-[#141414] mb-1.5"
             >
-              Brand / Active Guideline Version
+              Brand / Active Knowledge Version
             </label>
-            <select
-              id="guideline-collection"
-              value={guidelineCollection}
-              onChange={(e) => setGuidelineCollection(e.target.value)}
-              disabled={isSubmitting}
-              className="w-full px-4 py-3 rounded-2xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] focus:outline-none focus:bg-white focus:border-[#141414]"
-            >
-              {GUIDELINE_COLLECTIONS.map((col) => (
-                <option key={col} value={col}>
-                  {col}
-                </option>
-              ))}
-            </select>
+            {workspaceBrands.length > 0 ? (
+              <select
+                id="guideline-collection"
+                value={activeBrandChoiceId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setChosenBrandId(nextId);
+                  void selectBrand(nextId);
+                }}
+                disabled={isSubmitting}
+                className="w-full px-4 py-3 rounded-2xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] focus:outline-none focus:bg-white focus:border-[#141414]"
+              >
+                {workspaceBrands.map((b) => (
+                  <option key={b.brandId} value={b.brandId}>
+                    {b.brandName}
+                    {b.isSample ? " [Sample]" : ""} ·{" "}
+                    {b.publishedEntryCount} published rule
+                    {b.publishedEntryCount === 1 ? "" : "s"}
+                    {b.latestPublishedVersion
+                      ? ` (${b.latestPublishedVersion})`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                id="guideline-collection"
+                value={guidelineCollection}
+                onChange={(e) => setGuidelineCollection(e.target.value)}
+                disabled={isSubmitting}
+                className="w-full px-4 py-3 rounded-2xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] focus:outline-none focus:bg-white focus:border-[#141414]"
+              >
+                {GUIDELINE_COLLECTIONS.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            )}
+            {activeBrandChoice && activeBrandChoice.publishedEntryCount === 0 && (
+              <p className="text-[11px] text-[#92400E] mt-1.5">
+                No published Knowledge Hub rules yet for {activeBrandChoice.brandName}. Publish rules in Knowledge Hub for full enforcement.
+              </p>
+            )}
           </div>
         </div>
 
@@ -657,12 +751,24 @@ export default function NewReviewPage() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-[#E7E1DA]">
           <p className="text-xs text-[#6B6560]">
-            Brand: <strong className="text-[#141414]">{brandName ? `${brandName} (${guidelineCollection})` : guidelineCollection}</strong>
+            Brand:{" "}
+            <strong className="text-[#141414]">
+              {activeBrandChoice
+                ? `${activeBrandChoice.brandName} (${activeBrandChoice.publishedEntryCount} published)`
+                : brandName
+                ? `${brandName} (${guidelineCollection})`
+                : guidelineCollection}
+            </strong>
             <span className="ml-2">Multimodal OCR, visual and AI governance enabled</span>
           </p>
           <button
             type="submit"
-            disabled={isSubmitting || (persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId)}
+            disabled={
+              isSubmitting ||
+              (persistenceMode === "AUTHENTICATED_SUPABASE" &&
+                !activeBrandChoice?.brandId &&
+                !brandId)
+            }
             className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] disabled:opacity-60 text-xs font-semibold transition-colors whitespace-nowrap"
           >
             {isSubmitting ? (

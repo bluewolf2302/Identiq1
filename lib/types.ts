@@ -71,6 +71,9 @@ export type PastelTheme =
 
 export interface ReviewSubmission {
   id: string;
+  brandId?: string;
+  brandName?: string;
+  brandVersionId?: string;
   title: string;
   contentType: ContentType;
   guidelineCollection: string;
@@ -88,6 +91,7 @@ export interface ReviewSubmission {
   fallbackUsed?: boolean;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
+  contextWarnings?: string[];
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }
@@ -101,18 +105,62 @@ export type KnowledgeSection =
   | "visual"
   | "policies";
 
+export type PublicationStatus = "draft" | "published" | "archived";
+
 export interface KnowledgeEntry {
   id: string;
+  brandId?: string;
+  organisationId?: string;
   section: KnowledgeSection;
+  kind?: string;
   title: string;
   content: string;
   preferredTerm?: string;
   avoidTerm?: string;
   hexCodes?: string[];
   fontFamily?: string;
-  status: "Approved" | "Pending Review";
+  supportingEvidence?: string;
+  restrictions?: string[];
+  severity?: FindingSeverity;
+  status: "Approved" | "Pending Review" | "Archived";
+  publicationStatus?: PublicationStatus;
+  versionNumber?: number;
+  versionId?: string;
+  sourceDocumentId?: string;
+  sourceTitle?: string;
+  sectionRef?: string;
+  pageNumber?: number;
+  publishedAt?: string;
+  archivedAt?: string;
   updatedAt: string;
   owner: string;
+}
+
+export interface WorkspaceBrand {
+  brandId: string;
+  organisationId: string;
+  brandName: string;
+  description?: string;
+  website?: string;
+  approved: boolean;
+  isSample?: boolean;
+  latestPublishedVersion?: string;
+  publishedEntryCount: number;
+  draftEntryCount: number;
+  archivedEntryCount: number;
+  updatedAt: string;
+}
+
+export interface KnowledgeVersionSnapshot {
+  snapshotId: string;
+  brandId: string;
+  organisationId: string;
+  versionId: string;
+  versionNumber: number;
+  publishedAt: string;
+  publishedBy: string;
+  entryCount: number;
+  note?: string;
 }
 
 export type AssetCategory =
@@ -158,6 +206,9 @@ export interface AnalysisRequestPayload {
   title: string;
   contentType: ContentType;
   guidelineCollection: string;
+  brandId?: string;
+  organisationId?: string;
+  brandVersionId?: string;
   textContent: string;
   submissionId?: string;
   assetName?: string;
@@ -172,9 +223,13 @@ export interface AnalysisResponsePayload {
   summary: string;
   findings: ReviewFinding[];
   submissionId?: string;
+  brandId?: string;
+  brandName?: string;
+  brandVersionId?: string;
   analysisRunId?: string;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   fallbackUsed?: boolean;
+  contextWarnings?: string[];
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }

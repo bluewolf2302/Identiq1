@@ -10,7 +10,10 @@ import {
   UnsupportedDemoBrandError,
 } from "./api-adapters";
 import type { AnalysisOrchestrator } from "./analysis-orchestrator";
-import { BrandNotFoundError } from "../brand-context";
+import {
+  BrandNotFoundError,
+  CrossTenantBrandAccessError,
+} from "../brand-context";
 
 type AnalysisRouteDependencies = {
   orchestrator: Pick<AnalysisOrchestrator, "analyze">;
@@ -55,6 +58,15 @@ export async function handleAnalysisRequest(
       };
     }
     if (error instanceof AnalysisOrchestrationError) {
+      if (
+        error.stage === "brand-context" &&
+        error.cause instanceof CrossTenantBrandAccessError
+      ) {
+        return {
+          status: 403,
+          body: { error: "The selected brand does not belong to this organisation." },
+        };
+      }
       if (
         error.stage === "brand-context" &&
         error.cause instanceof BrandNotFoundError

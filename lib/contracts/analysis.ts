@@ -83,6 +83,8 @@ export const AnalysisRequestSchema = z
   .object({
     submissionId: z.string().min(1),
     brandId: z.string().min(1),
+    organisationId: z.string().min(1).optional(),
+    brandVersionId: z.string().min(1).optional(),
     campaignName: z.string().min(1),
     contentText: z.string().optional(),
     uploadedFileReferences: z.array(UploadedFileReferenceSchema).optional(),
@@ -104,12 +106,16 @@ export type AnalysisStatus = z.infer<typeof AnalysisStatusSchema>;
 export const AnalysisResponseSchema = z
   .object({
     submissionId: z.string().min(1),
+    brandId: z.string().min(1).optional(),
+    brandName: z.string().min(1).optional(),
+    brandVersionId: z.string().min(1).optional(),
     analysisRunId: z.string().min(1),
     analysisStatus: AnalysisStatusSchema,
     findings: z.array(ReviewFindingSchema),
     providerUsed: z.string().min(1),
     fallbackUsed: z.boolean(),
     analysisTimestamp: z.string().datetime({ offset: true }),
+    contextWarnings: z.array(z.string()).optional(),
     ocrBlocks: z.array(OcrBlockContractSchema).optional(),
     visualSummary: VisualAnalysisSummarySchema.optional(),
   })

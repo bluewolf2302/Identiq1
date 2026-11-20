@@ -70,6 +70,7 @@ export default function HomePage() {
     reviews,
     activities,
     knowledge,
+    workspaceBrands,
     setActiveReviewId,
     user,
     viewerProfile,
@@ -93,8 +94,12 @@ export default function HomePage() {
   }, []);
 
   const availableBrands = useMemo(
-    () => getUniqueBrands(reviews, GUIDELINE_COLLECTIONS),
-    [reviews]
+    () =>
+      getUniqueBrands(reviews, [
+        ...workspaceBrands.map((b) => b.brandName),
+        ...GUIDELINE_COLLECTIONS,
+      ]),
+    [reviews, workspaceBrands]
   );
 
   const activeFilters = useMemo(

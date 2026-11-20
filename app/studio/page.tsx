@@ -357,7 +357,15 @@ function ReviewStudioInner() {
                   <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6560] mb-1">
                     <span>{activeReview.contentType}</span>
                     <span>·</span>
-                    <span>{activeReview.guidelineCollection}</span>
+                    <span>
+                      {activeReview.brandName
+                        ? `${activeReview.brandName}${
+                            activeReview.brandVersionId
+                              ? ` (${activeReview.brandVersionId})`
+                              : ""
+                          }`
+                        : activeReview.guidelineCollection}
+                    </span>
                     <span>·</span>
                     <span className={`font-semibold ${statusMeta.textColor}`}>
                       {statusMeta.label}
@@ -498,8 +506,15 @@ function ReviewStudioInner() {
                     Partial Governance Review
                   </p>
                   <p className="leading-relaxed text-[#524E4A]">
-                    OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were successfully verified. AI semantic interpretation was temporarily unavailable or had partial coverage, but all evidence findings below are fully actionable.
+                    {activeReview.contextWarnings?.includes("NO_PUBLISHED_KNOWLEDGE")
+                      ? "This brand currently has no published Knowledge Hub rules covering this submission. Publish rules in Brand Knowledge Hub to unlock full deterministic and AI brand verification."
+                      : "OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were successfully verified. AI semantic interpretation was temporarily unavailable or had partial coverage, but all evidence findings below are fully actionable."}
                   </p>
+                  {activeReview.contextWarnings && activeReview.contextWarnings.length > 0 && (
+                    <p className="text-[11px] text-[#664D03]">
+                      Brand context notice: {activeReview.contextWarnings.join(", ")}
+                    </p>
+                  )}
                   {activeReview.visualSummary?.warnings && activeReview.visualSummary.warnings.length > 0 && (
                     <div className="pt-1 border-t border-[#E7D89E]/60 text-[11px] text-[#664D03] space-y-0.5">
                       {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (

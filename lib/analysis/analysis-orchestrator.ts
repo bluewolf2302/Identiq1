@@ -3,7 +3,6 @@ import {
   AnalysisResponseSchema,
   type AnalysisRequest,
   type AnalysisResponse,
-  type BrandContext,
   type ReviewFinding,
 } from "../contracts";
 import {
@@ -141,7 +140,7 @@ export class AnalysisOrchestrator {
     if (request.data.creativePayload && this.visualAnalyzer) {
       visualResult = await this.runVisual(
         request.data,
-        contextResult.context,
+        contextResult,
         analysisRunId,
       );
     }
@@ -202,12 +201,21 @@ export class AnalysisOrchestrator {
 
     const responseInput = {
       submissionId: request.data.submissionId,
+      brandId: request.data.brandId,
+      ...(contextResult.record?.profile.brandName
+        ? { brandName: contextResult.record.profile.brandName }
+        : {}),
+      brandVersionId:
+        request.data.brandVersionId ?? contextResult.context.versionId,
       analysisRunId,
       analysisStatus: isPartial ? ("PARTIAL" as const) : ("COMPLETED" as const),
       findings,
       providerUsed: resolvedProvider,
       fallbackUsed: semanticResult.fallbackUsed || isVisualFallback,
       analysisTimestamp: this.now().toISOString(),
+      ...(contextResult.warnings.length > 0
+        ? { contextWarnings: contextResult.warnings }
+        : {}),
       ...(visualResult
         ? {
             ocrBlocks: visualResult.ocrBlocks,
@@ -254,6 +262,8 @@ export class AnalysisOrchestrator {
     try {
       return await this.brandContextService.getForSubmission({
         brandId: request.brandId,
+        ...(request.organisationId ? { organisationId: request.organisationId } : {}),
+        ...(request.brandVersionId ? { versionId: request.brandVersionId } : {}),
         submissionId: request.submissionId,
         contentPlatform: request.contentPlatform,
       });
@@ -268,7 +278,7 @@ export class AnalysisOrchestrator {
 
   private async runVisual(
     request: AnalysisRequest,
-    brandContext: BrandContext,
+    contextResult: BrandContextRetrieval,
     analysisRunId: string,
   ): Promise<VisualAnalysisResult> {
     if (!this.visualAnalyzer || !request.creativePayload) {
@@ -279,14 +289,16 @@ export class AnalysisOrchestrator {
     }
 
     try {
-      const rawRecord = this.getBrandKnowledgeRecord
-        ? (await this.getBrandKnowledgeRecord(request.brandId)) ?? undefined
-        : undefined;
+      const rawRecord =
+        contextResult.record ??
+        (this.getBrandKnowledgeRecord
+          ? (await this.getBrandKnowledgeRecord(request.brandId)) ?? undefined
+          : undefined);
 
       const result = await this.visualAnalyzer.analyze({
         creative: request.creativePayload,
         brandId: request.brandId,
-        brandContext,
+        brandContext: contextResult.context,
         brandKnowledgeRecord: rawRecord,
         reviewId: request.submissionId,
         analysisRunId,
