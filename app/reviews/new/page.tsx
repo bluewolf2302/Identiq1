@@ -63,7 +63,16 @@ function estimatePdfPageCountFromText(rawLatin1: string): number | undefined {
 
 export default function NewReviewPage() {
   const router = useRouter();
-  const { knowledge, addReview, viewerProfile, user, notify } = useIdentiq();
+  const {
+    knowledge,
+    addReview,
+    viewerProfile,
+    user,
+    notify,
+    brandId,
+    brandName,
+    persistenceMode,
+  } = useIdentiq();
   const actor = resolveActiveActorIdentity({ viewerProfile, authUser: user });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -211,6 +220,13 @@ export default function NewReviewPage() {
     e.preventDefault();
     if (isSubmitting) return;
 
+    if (persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId) {
+      setErrorMessage(
+        "Cannot submit review: No active brand profile is configured for this organisation. Reviews in authenticated mode require an active brand."
+      );
+      return;
+    }
+
     if (!title.trim()) {
       setErrorMessage("Please enter a campaign or content name.");
       return;
@@ -327,7 +343,7 @@ export default function NewReviewPage() {
         visualSummary: data.visualSummary,
       };
 
-      addReview(newReview);
+      await addReview(newReview, brandId || undefined);
       if (data.analysisStatus === "PARTIAL") {
         notify(
           `Review ready (${data.findings.length} findings, partial AI coverage)`,
@@ -386,6 +402,23 @@ export default function NewReviewPage() {
       </div>
 
       {/* Main Form */}
+      {persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId && (
+        <div
+          role="alert"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFF4E5] border border-[#FFE2BA] text-[#8C4A00] px-4 py-3.5 rounded-2xl text-xs font-medium"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertCircle className="w-4 h-4 shrink-0 text-[#D97706]" />
+            <div>
+              <strong className="font-semibold text-[#78350F]">No Active Brand Profile Configured</strong>
+              <p className="text-[11px] text-[#92400E] mt-0.5">
+                This organisation has no resolved primary brand. Please configure a brand in your organisation settings before submitting reviews for governance.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form
         onSubmit={handleSubmit}
         className="bg-white border border-[#E7E1DA] rounded-[26px] p-6 sm:p-8 space-y-6"
@@ -624,12 +657,12 @@ export default function NewReviewPage() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-[#E7E1DA]">
           <p className="text-xs text-[#6B6560]">
-            Brand: <strong className="text-[#141414]">{guidelineCollection}</strong>
+            Brand: <strong className="text-[#141414]">{brandName ? `${brandName} (${guidelineCollection})` : guidelineCollection}</strong>
             <span className="ml-2">Multimodal OCR, visual and AI governance enabled</span>
           </p>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId)}
             className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] disabled:opacity-60 text-xs font-semibold transition-colors whitespace-nowrap"
           >
             {isSubmitting ? (
