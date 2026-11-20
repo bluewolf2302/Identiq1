@@ -194,6 +194,99 @@ export async function POST(req: NextRequest) {
           );
         }
 
+        // Validate the flag before choosing the draft or apply workflow.
+        if (
+          payload.applyToCopy !== undefined &&
+          typeof payload.applyToCopy !== "boolean"
+        ) {
+          return NextResponse.json(
+            {
+              error: "VALIDATION_ERROR",
+              message: "applyToCopy must be a boolean",
+            },
+            { status: 400 }
+          );
+        }
+
+        // Saving a draft must not change content, resolution, or score.
+        if (payload.applyToCopy !== true) {
+          const reviewResult = await callServerPostgrest<
+            Array<{ compliance_score: number }>
+          >(
+            `/rest/v1/reviews?id=eq.${encodeURIComponent(reviewId)}` +
+              `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}` +
+              `&select=compliance_score`,
+            { useServiceRole: true }
+          );
+
+          if (reviewResult.error) {
+            return NextResponse.json(
+              {
+                error: "PERSISTENCE_ERROR",
+                message: "Unable to load the review. Please retry.",
+              },
+              { status: 502 }
+            );
+          }
+
+          const storedReview = reviewResult.data?.[0];
+
+          if (
+            !storedReview ||
+            typeof storedReview.compliance_score !== "number" ||
+            !Number.isFinite(storedReview.compliance_score)
+          ) {
+            return NextResponse.json(
+              {
+                error: "INVALID_REVIEW",
+                message: "The review or its saved score is unavailable.",
+              },
+              { status: 409 }
+            );
+          }
+
+          const saveResult = await callServerPostgrest<Array<{ id: string }>>(
+            `/rest/v1/review_findings?id=eq.${encodeURIComponent(findingId)}` +
+              `&review_id=eq.${encodeURIComponent(reviewId)}`,
+            {
+              method: "PATCH",
+              useServiceRole: true,
+              body: {
+                edited_correction: editedText,
+                updated_at: new Date().toISOString(),
+              },
+            }
+          );
+
+          if (saveResult.error) {
+            return NextResponse.json(
+              {
+                error: "PERSISTENCE_ERROR",
+                message: "The correction draft could not be saved. Please retry.",
+              },
+              { status: 502 }
+            );
+          }
+
+          if (!Array.isArray(saveResult.data) || saveResult.data.length !== 1) {
+            return NextResponse.json(
+              {
+                error: "NOT_FOUND",
+                message: "The finding was not found in this review.",
+              },
+              { status: 404 }
+            );
+          }
+
+          return NextResponse.json({
+            success: true,
+            reviewId,
+            findingId,
+            appliedToCopy: false,
+            complianceScore: storedReview.compliance_score,
+          });
+        }
+
         await callServerPostgrest(`/rest/v1/review_findings?id=eq.${findingId}&review_id=eq.${reviewId}`, {
           method: "PATCH",
           useServiceRole: true,

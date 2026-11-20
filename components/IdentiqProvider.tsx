@@ -925,11 +925,70 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     editedText: string,
     applyToCopy = false
   ) => {
-    const targetReview = reviews.find((r) => r.id === reviewId);
-    const targetFinding = targetReview?.findings.find((f) => f.id === findingId);
-    const prevReviews = reviews;
-    const prevActivities = activities;
+ const targetReview = reviews.find((r) => r.id === reviewId);
+const targetFinding = targetReview?.findings.find(
+  (f) => f.id === findingId
+);
 
+if (!targetReview || !targetFinding) {
+  notify("Review or finding not found. Refresh and try again.", "error");
+  return;
+}
+
+if (applyToCopy) {
+  const replacement = editedText.trim();
+  const affectedText = targetFinding.affectedContent;
+
+  if (!replacement) {
+    notify(
+      "Enter replacement text before applying a correction.",
+      "error"
+    );
+    return;
+  }
+
+  if (!affectedText || !affectedText.trim()) {
+    notify(
+      "This finding has no text target. Revise the content or creative and recheck it.",
+      "error"
+    );
+    return;
+  }
+
+  const firstMatch = targetReview.textContent.indexOf(affectedText);
+
+  if (firstMatch === -1) {
+    notify(
+      "The original text is no longer present. Recheck the latest content before applying this correction.",
+      "error"
+    );
+    return;
+  }
+
+  const secondMatch = targetReview.textContent.indexOf(
+    affectedText,
+    firstMatch + 1
+  );
+
+  if (secondMatch !== -1) {
+    notify(
+      "This text appears more than once. Automatic replacement is paused until the intended occurrence can be selected.",
+      "error"
+    );
+    return;
+  }
+
+  if (replacement === affectedText) {
+    notify(
+      "The replacement is identical to the original text. No correction was applied.",
+      "info"
+    );
+    return;
+  }
+}
+
+const prevReviews = reviews;
+const prevActivities = activities;
     // Optimistic update
     setReviews((prev) =>
       prev.map((r) => {
@@ -967,7 +1026,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           ...r,
           textContent: updatedTextContent,
           findings: nextFindings,
-          complianceScore: recomputeScore(nextFindings, r.complianceScore),
+          complianceScore: applyToCopy
+            ? recomputeScore(nextFindings, r.complianceScore)
+            : r.complianceScore,
         };
       })
     );
