@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAnalysisOrchestrator } from "@/lib/analysis/composition-root";
 import { handleAnalysisRequest } from "@/lib/analysis/api-handler";
+import { HostedPersistenceUnavailableError } from "@/lib/brand-context";
 import { resolveServerApiTenantContext } from "@/lib/brand-context/server-api-auth";
 
 export async function POST(req: NextRequest) {
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (err) {
+    if (err instanceof HostedPersistenceUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     console.error(
       "Unhandled API analysis error:",
       err instanceof Error ? err.name : "UnknownError",

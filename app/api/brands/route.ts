@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   BrandKnowledgeRepositoryError,
   CrossTenantBrandAccessError,
+  HostedPersistenceUnavailableError,
   createBrandKnowledgeRepository,
+  getPersistenceEnvironmentInfo,
 } from "@/lib/brand-context";
 import { resolveServerApiTenantContext } from "@/lib/brand-context/server-api-auth";
 
@@ -37,6 +39,8 @@ export async function GET(req: NextRequest) {
     }
 
     const repo = createBrandKnowledgeRepository();
+    const persistenceEnvironment = getPersistenceEnvironmentInfo();
+
     if (requestedBrandId) {
       const brand = await repo.getBrand(requestedBrandId, tenant.organisationId);
       if (!brand) {
@@ -53,6 +57,7 @@ export async function GET(req: NextRequest) {
         brand,
         snapshots,
         organisationId: tenant.organisationId,
+        persistenceEnvironment,
       });
     }
 
@@ -60,8 +65,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       brands,
       organisationId: tenant.organisationId,
+      persistenceEnvironment,
     });
   } catch (err) {
+    if (err instanceof HostedPersistenceUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     if (err instanceof CrossTenantBrandAccessError) {
       return NextResponse.json({ error: err.message }, { status: 403 });
     }
@@ -124,6 +133,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ brand }, { status: 201 });
   } catch (err) {
+    if (err instanceof HostedPersistenceUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     if (err instanceof CrossTenantBrandAccessError) {
       return NextResponse.json({ error: err.message }, { status: 403 });
     }

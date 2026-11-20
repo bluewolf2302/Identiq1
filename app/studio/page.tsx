@@ -70,6 +70,7 @@ function ReviewStudioInner() {
     reviews,
     activeReviewId,
     setActiveReviewId,
+    selectedBrandId,
     toggleFindingResolved,
     updateFindingCorrection,
     addFindingComment,
@@ -1067,19 +1068,46 @@ function ReviewStudioInner() {
                   </p>
                   {selectedFinding.evidenceReferences &&
                     selectedFinding.evidenceReferences.length > 0 && (
-                      <div className="pt-2 border-t border-[#D3CAEE] space-y-1.5">
+                      <div className="pt-2 border-t border-[#D3CAEE] space-y-2">
                         <p className="text-[11px] font-bold text-[#141414]">Approved evidence</p>
-                        {selectedFinding.evidenceReferences.map((reference, index) => (
-                          <div key={`${reference.sourceId}-${reference.versionId ?? "unknown"}-${index}`} className="text-[11px] text-[#3F3B37]">
-                            <p className="font-semibold">
-                              {reference.sourceTitle} · {reference.sourceId}
-                              {reference.versionId ? ` · v${reference.versionId}` : " · version unavailable"}
-                            </p>
-                            {reference.excerpt && (
-                              <p className="mt-0.5 italic">&ldquo;{reference.excerpt}&rdquo;</p>
-                            )}
-                          </div>
-                        ))}
+                        {selectedFinding.evidenceReferences.map((reference, index) => {
+                          const formattedVersion = reference.versionId
+                            ? reference.versionId.startsWith("v")
+                              ? reference.versionId
+                              : `v${reference.versionId}`
+                            : null;
+                          const inspectParams = new URLSearchParams();
+                          const brandParam = activeReview.brandId || selectedBrandId;
+                          if (brandParam) inspectParams.set("brandId", brandParam);
+                          if (reference.sourceId) inspectParams.set("sourceDocId", reference.sourceId);
+                          if (reference.pageNumber) inspectParams.set("page", String(reference.pageNumber));
+                          return (
+                            <div
+                              key={`${reference.sourceId}-${reference.versionId ?? "unknown"}-${index}`}
+                              className="text-[11px] text-[#3F3B37] rounded-xl bg-white/55 border border-[#D3CAEE]/70 px-3 py-2 space-y-1"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-semibold">
+                                  {reference.sourceTitle} · {reference.sourceId}
+                                  {formattedVersion
+                                    ? ` · ${formattedVersion}`
+                                    : " · version unavailable"}
+                                  {reference.section ? ` · ${reference.section}` : ""}
+                                  {reference.pageNumber ? ` · p.${reference.pageNumber}` : ""}
+                                </p>
+                                <Link
+                                  href={`/knowledge-hub?${inspectParams.toString()}`}
+                                  className="inline-flex items-center gap-1 font-semibold text-[#141414] underline decoration-[#8E8780] hover:decoration-[#141414]"
+                                >
+                                  Inspect source
+                                </Link>
+                              </div>
+                              {reference.excerpt && (
+                                <p className="italic text-[#524E4A]">&ldquo;{reference.excerpt}&rdquo;</p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                 </div>

@@ -13,6 +13,7 @@ import type { AnalysisOrchestrator } from "./analysis-orchestrator";
 import {
   BrandNotFoundError,
   CrossTenantBrandAccessError,
+  HostedPersistenceUnavailableError,
 } from "../brand-context";
 
 type AnalysisRouteDependencies = {
@@ -101,6 +102,12 @@ export async function handleAnalysisRequest(
         };
       }
       if (error.stage === "brand-context") {
+        if (error.cause instanceof HostedPersistenceUnavailableError) {
+          return {
+            status: 503,
+            body: { error: error.cause.message },
+          };
+        }
         return {
           status: 502,
           body: { error: "Approved brand context could not be retrieved." },

@@ -3,9 +3,12 @@ import { z } from "zod";
 import {
   BrandKnowledgeRepositoryError,
   CrossTenantBrandAccessError,
+  EntryOriginSchema,
+  HostedPersistenceUnavailableError,
   KnowledgeEntryNotFoundError,
   ManagedKnowledgeSectionSchema,
   PublicationStatusSchema,
+  StructuredFactMetadataSchema,
   createBrandKnowledgeRepository,
 } from "@/lib/brand-context";
 import { resolveServerApiTenantContext } from "@/lib/brand-context/server-api-auth";
@@ -28,6 +31,10 @@ const SaveEntryPayloadSchema = z
       .trim()
       .min(2, "Guidance or fact description is required.")
       .max(8000),
+    entryOrigin: EntryOriginSchema.optional(),
+    extractedText: z.string().min(1).max(16000).optional(),
+    sourceProposalId: z.string().trim().max(160).optional(),
+    structuredFacts: StructuredFactMetadataSchema.optional(),
     preferredTerm: z.string().trim().max(500).optional(),
     avoidTerm: z.string().trim().max(500).optional(),
     hexCodes: z
@@ -44,6 +51,7 @@ const SaveEntryPayloadSchema = z
     severity: z.enum(["high", "medium", "low"]).optional(),
     sourceDocumentId: z.string().trim().max(160).optional(),
     sourceTitle: z.string().trim().max(300).optional(),
+    sourceDocumentVersion: z.string().trim().max(120).optional(),
     sectionRef: z.string().trim().max(200).optional(),
     pageNumber: z.number().int().positive().optional(),
     applicableTo: z
@@ -55,6 +63,8 @@ const SaveEntryPayloadSchema = z
       .optional(),
     owner: z.string().trim().max(160).optional(),
     versionId: z.string().trim().max(60).optional(),
+    publishIdempotencyKey: z.string().trim().max(200).optional(),
+    supersedeEntryId: z.string().trim().min(1).max(160).optional(),
   })
   .strict();
 
@@ -66,6 +76,8 @@ const PublishEntryPayloadSchema = z
     organisationId: z.string().trim().min(1).optional(),
     actor: z.string().trim().max(160).optional(),
     note: z.string().trim().max(500).optional(),
+    publishIdempotencyKey: z.string().trim().max(200).optional(),
+    supersedeEntryId: z.string().trim().min(1).max(160).optional(),
   })
   .strict();
 
@@ -141,6 +153,9 @@ export async function GET(req: NextRequest) {
       snapshots,
     });
   } catch (err) {
+    if (err instanceof HostedPersistenceUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     if (err instanceof CrossTenantBrandAccessError) {
       return NextResponse.json({ error: err.message }, { status: 403 });
     }
@@ -204,12 +219,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (payload.action === "publish") {
+      if (payload.supersedeEntryId && payload.supersedeEntryId !== payload.entryId) {
+        await repo.archiveKnowledgeEntry({
+          entryId: payload.supersedeEntryId,
+          brandId: payload.brandId,
+          organisationId: tenant.organisationId,
+          actor: payload.actor || tenant.actorName,
+        });
+      }
       const result = await repo.publishKnowledgeEntry({
         entryId: payload.entryId,
         brandId: payload.brandId,
         organisationId: tenant.organisationId,
         actor: payload.actor || tenant.actorName,
         note: payload.note,
+        publishIdempotencyKey: payload.publishIdempotencyKey,
       });
       const [brand, snapshots] = await Promise.all([
         repo.getBrand(payload.brandId, tenant.organisationId),
@@ -237,6 +261,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (
+      payload.action === "save_and_publish" &&
+      payload.supersedeEntryId &&
+      payload.supersedeEntryId !== payload.id
+    ) {
+      await repo.archiveKnowledgeEntry({
+        entryId: payload.supersedeEntryId,
+        brandId: payload.brandId,
+        organisationId: tenant.organisationId,
+        actor: payload.owner || tenant.actorName,
+      });
+    }
+
     const entry = await repo.saveKnowledgeEntry({
       id: payload.id,
       brandId: payload.brandId,
@@ -245,6 +282,10 @@ export async function POST(req: NextRequest) {
       kind: payload.kind,
       title: payload.title,
       content: payload.content,
+      entryOrigin: payload.entryOrigin,
+      extractedText: payload.extractedText,
+      sourceProposalId: payload.sourceProposalId,
+      structuredFacts: payload.structuredFacts,
       preferredTerm: payload.preferredTerm,
       avoidTerm: payload.avoidTerm,
       hexCodes: payload.hexCodes,
@@ -256,11 +297,13 @@ export async function POST(req: NextRequest) {
         payload.action === "save_and_publish" ? "published" : "draft",
       sourceDocumentId: payload.sourceDocumentId,
       sourceTitle: payload.sourceTitle,
+      sourceDocumentVersion: payload.sourceDocumentVersion,
       sectionRef: payload.sectionRef,
       pageNumber: payload.pageNumber,
       applicableTo: payload.applicableTo,
       owner: payload.owner || tenant.actorName,
       versionId: payload.versionId,
+      publishIdempotencyKey: payload.publishIdempotencyKey,
     });
 
     const [brand, snapshots] = await Promise.all([
@@ -274,6 +317,9 @@ export async function POST(req: NextRequest) {
       snapshots,
     });
   } catch (err) {
+    if (err instanceof HostedPersistenceUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
     if (err instanceof CrossTenantBrandAccessError) {
       return NextResponse.json({ error: err.message }, { status: 403 });
     }

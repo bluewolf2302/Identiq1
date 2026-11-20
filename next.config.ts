@@ -37,6 +37,15 @@ const nextConfig: NextConfig = {
       "./node_modules/pdfjs-dist/standard_fonts/**/*",
       "./node_modules/pdfjs-dist/cmaps/**/*",
     ],
+
+    "/api/guidelines/documents": [
+      "./node_modules/@tesseract.js-data/eng/**/*",
+      "./node_modules/tesseract.js/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+      "./node_modules/pdfjs-dist/standard_fonts/**/*",
+      "./node_modules/pdfjs-dist/cmaps/**/*",
+    ],
   },
 };
 

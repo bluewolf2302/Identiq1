@@ -2,9 +2,11 @@ import type {
   BrandContextQuery,
   BrandKnowledgeRecord,
   BrandVersionSnapshot,
+  EntryOrigin,
   ManagedKnowledgeEntry,
   ManagedKnowledgeSection,
   PublicationStatus,
+  StructuredFactMetadata,
   WorkspaceBrandRecord,
 } from "./types";
 
@@ -33,6 +35,10 @@ export interface SaveManagedKnowledgeInput {
   kind?: string;
   title: string;
   content: string;
+  entryOrigin?: EntryOrigin;
+  extractedText?: string;
+  sourceProposalId?: string;
+  structuredFacts?: StructuredFactMetadata;
   preferredTerm?: string;
   avoidTerm?: string;
   hexCodes?: string[];
@@ -43,6 +49,7 @@ export interface SaveManagedKnowledgeInput {
   publicationStatus?: "draft" | "published";
   sourceDocumentId?: string;
   sourceTitle?: string;
+  sourceDocumentVersion?: string;
   sectionRef?: string;
   pageNumber?: number;
   applicableTo?: {
@@ -51,6 +58,7 @@ export interface SaveManagedKnowledgeInput {
   };
   owner?: string;
   versionId?: string;
+  publishIdempotencyKey?: string;
 }
 
 export interface MultiBrandKnowledgeRepository extends BrandKnowledgeRepository {
@@ -74,6 +82,7 @@ export interface MultiBrandKnowledgeRepository extends BrandKnowledgeRepository 
     organisationId?: string;
     actor?: string;
     note?: string;
+    publishIdempotencyKey?: string;
   }): Promise<{
     entry: ManagedKnowledgeEntry;
     snapshot: BrandVersionSnapshot;
@@ -97,6 +106,15 @@ export class BrandKnowledgeRepositoryError extends Error {
     super(message);
     this.name = "BrandKnowledgeRepositoryError";
     this.cause = cause;
+  }
+}
+
+export class HostedPersistenceUnavailableError extends BrandKnowledgeRepositoryError {
+  constructor(
+    message = "Hosted persistence is unavailable because database credentials are not configured for this deployed environment.",
+  ) {
+    super(message);
+    this.name = "HostedPersistenceUnavailableError";
   }
 }
 

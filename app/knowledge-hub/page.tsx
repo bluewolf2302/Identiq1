@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   Archive,
   Ban,
   BookOpen,
@@ -10,7 +11,9 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
+  ExternalLink,
   FileCheck2,
+  FileText,
   History,
   Loader2,
   MessageSquareQuote,
@@ -127,6 +130,8 @@ export default function KnowledgeHubPage() {
     publishKnowledgeEntry,
     archiveKnowledgeEntry,
     refreshBrands,
+    getKnowledgeRequestContext,
+    notify,
   } = useIdentiq();
 
   const [activeView, setActiveView] = useState<"knowledge" | "guidelines">(
@@ -137,6 +142,70 @@ export default function KnowledgeHubPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [sourceDocFilter, setSourceDocFilter] = useState<string>("");
+  const [sourcePageFilter, setSourcePageFilter] = useState<number | null>(null);
+  const [sourcePdfUrl, setSourcePdfUrl] = useState<string | null>(null);
+  const [sourcePdfTitle, setSourcePdfTitle] = useState<string>("");
+  const appliedDeepLinkRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || appliedDeepLinkRef.current) return;
+    appliedDeepLinkRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const paramBrandId = params.get("brandId")?.trim();
+    const paramDocId = params.get("sourceDocId")?.trim();
+    const paramPage = params.get("page")?.trim();
+    if (!paramBrandId && !paramDocId && !paramPage) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (paramBrandId && paramBrandId !== selectedBrandId) {
+        void selectBrand(paramBrandId);
+      }
+      if (paramDocId) {
+        setSourceDocFilter(paramDocId);
+        setActiveView("knowledge");
+      }
+      if (paramPage) {
+        const n = Number.parseInt(paramPage, 10);
+        if (Number.isFinite(n) && n > 0) setSourcePageFilter(n);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBrandId, selectBrand]);
+
+  useEffect(() => {
+    return () => {
+      if (sourcePdfUrl) URL.revokeObjectURL(sourcePdfUrl);
+    };
+  }, [sourcePdfUrl]);
+
+  const handleInspectSourcePdf = async (entry: KnowledgeEntry) => {
+    if (!entry.sourceDocumentId) return;
+    try {
+      const { organisationId, headers } = getKnowledgeRequestContext();
+      const params = new URLSearchParams({ organisationId });
+      const res = await fetch(
+        `/api/guidelines/documents/${encodeURIComponent(entry.sourceDocumentId)}/file?${params.toString()}`,
+        { headers },
+      );
+      if (!res.ok) {
+        throw new Error("Original PDF file is not stored in this workspace for that source ID.");
+      }
+      const blob = await res.blob();
+      if (sourcePdfUrl) URL.revokeObjectURL(sourcePdfUrl);
+      setSourcePdfUrl(URL.createObjectURL(blob));
+      setSourcePdfTitle(entry.sourceTitle || entry.sourceDocumentId);
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Unable to open source PDF.",
+        "info",
+      );
+    }
+  };
 
   // Entry Add/Edit Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -170,7 +239,14 @@ export default function KnowledgeHubPage() {
 
   const filteredEntries = useMemo(() => {
     return knowledge.filter((entry) => {
-      const matchesSection = entry.section === activeSection;
+      if (sourceDocFilter) {
+        const matchesDoc = entry.sourceDocumentId === sourceDocFilter;
+        const matchesPage =
+          sourcePageFilter === null || entry.pageNumber === sourcePageFilter;
+        if (!matchesDoc || !matchesPage) return false;
+      } else if (entry.section !== activeSection) {
+        return false;
+      }
       const pubStatus =
         entry.publicationStatus ||
         (entry.status === "Approved"
@@ -193,9 +269,9 @@ export default function KnowledgeHubPage() {
         (entry.avoidTerm || "").toLowerCase().includes(q) ||
         (entry.sourceTitle || "").toLowerCase().includes(q) ||
         (entry.sourceDocumentId || "").toLowerCase().includes(q);
-      return matchesSection && matchesStatus && matchesSearch;
+      return matchesStatus && matchesSearch;
     });
-  }, [knowledge, activeSection, statusFilter, searchQuery]);
+  }, [knowledge, activeSection, statusFilter, searchQuery, sourceDocFilter, sourcePageFilter]);
 
   const openCreateModal = () => {
     setEditingEntry(null);
@@ -642,6 +718,26 @@ export default function KnowledgeHubPage() {
               </div>
             </div>
 
+            {sourceDocFilter && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#D3CAEE] bg-[#E2DBFB]/55 px-4 py-3 text-xs text-[#141414]">
+                <span>
+                  Inspecting entries linked to source{" "}
+                  <strong className="font-mono">{sourceDocFilter}</strong>
+                  {sourcePageFilter ? ` · page ${sourcePageFilter}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSourceDocFilter("");
+                    setSourcePageFilter(null);
+                  }}
+                  className="rounded-full bg-[#141414] px-3 py-1 text-[11px] font-semibold text-white"
+                >
+                  Clear Source Filter
+                </button>
+              </div>
+            )}
+
             {/* Entries List */}
             {filteredEntries.length === 0 ? (
               <div className="bg-white border border-[#E7E1DA] rounded-[22px] p-8 text-center">
@@ -676,9 +772,11 @@ export default function KnowledgeHubPage() {
                   return (
                     <div
                       key={entry.id}
-                      className={`bg-white border border-[#E7E1DA] rounded-[22px] p-5 flex flex-col gap-3 ${
-                        isArchived ? "opacity-75" : ""
-                      }`}
+                      className={`bg-white border rounded-[22px] p-5 flex flex-col gap-3 ${
+                        sourceDocFilter && entry.sourceDocumentId === sourceDocFilter
+                          ? "border-[#141414] ring-1 ring-[#141414]/20"
+                          : "border-[#E7E1DA]"
+                      } ${isArchived ? "opacity-75" : ""}`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div>
@@ -704,6 +802,18 @@ export default function KnowledgeHubPage() {
                                 : isArchived
                                 ? "Archived"
                                 : "Draft"}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                                entry.entryOrigin === "guideline_pdf"
+                                  ? "bg-[#E2DBFB] text-[#3B2667]"
+                                  : "bg-[#FAF8F6] border border-[#E7E1DA] text-[#524E4A]"
+                              }`}
+                            >
+                              <FileText className="w-3 h-3" />
+                              {entry.entryOrigin === "guideline_pdf"
+                                ? "From PDF"
+                                : "Manual"}
                             </span>
                             {entry.versionId && (
                               <span className="px-2 py-0.5 rounded-md bg-[#FAF8F6] border border-[#E7E1DA] font-mono text-[11px] text-[#3F3B37]">
@@ -763,6 +873,51 @@ export default function KnowledgeHubPage() {
                         {entry.content}
                       </p>
 
+                      {entry.extractedText &&
+                        entry.extractedText.trim() !== entry.content.trim() && (
+                          <div className="rounded-xl bg-[#FAF8F6] border border-[#E7E1DA] px-3.5 py-2.5 text-xs">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-[#6B6560]">
+                              Original PDF Excerpt (Preserved Unchanged)
+                            </p>
+                            <p className="mt-1 text-[#524E4A] italic">
+                              &ldquo;{entry.extractedText}&rdquo;
+                            </p>
+                          </div>
+                        )}
+
+                      {entry.structuredFacts && (
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          {entry.structuredFacts.productName && (
+                            <span className="rounded-lg bg-[#FAF8F6] border border-[#E7E1DA] px-2.5 py-1 text-[#3F3B37]">
+                              Product: <strong>{entry.structuredFacts.productName}</strong>
+                            </span>
+                          )}
+                          {entry.structuredFacts.price && (
+                            <span className="rounded-lg bg-[#CDEEE0]/50 border border-[#BAE0D0] px-2.5 py-1 font-semibold text-[#14532D]">
+                              Price: {entry.structuredFacts.price}
+                            </span>
+                          )}
+                          {(entry.structuredFacts.validFrom ||
+                            entry.structuredFacts.validUntil) && (
+                            <span className="rounded-lg bg-[#DDF0FA]/60 border border-[#CBE2EF] px-2.5 py-1 text-[#0C4A6E]">
+                              Window:{" "}
+                              {[
+                                entry.structuredFacts.validFrom,
+                                entry.structuredFacts.validUntil,
+                              ]
+                                .filter(Boolean)
+                                .join(" – ")}
+                            </span>
+                          )}
+                          {entry.structuredFacts.isExpiredPromo && (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-[#F6D5DA] border border-[#EBC3CA] px-2.5 py-1 font-semibold text-[#7F1D1D]">
+                              <AlertTriangle className="w-3 h-3" />
+                              Expired Promo Date
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {(entry.preferredTerm || entry.avoidTerm) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                           {entry.preferredTerm && (
@@ -814,20 +969,36 @@ export default function KnowledgeHubPage() {
                       )}
 
                       {(entry.sourceTitle || entry.sourceDocumentId) && (
-                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#F3EDE8] text-[11px] text-[#6B6560]">
-                          <span className="font-semibold text-[#3F3B37]">
-                            Source:
-                          </span>
-                          <span>{entry.sourceTitle}</span>
-                          {entry.sourceDocumentId && (
-                            <span className="font-mono text-[#524E4A]">
-                              ({entry.sourceDocumentId})
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F3EDE8] text-[11px] text-[#6B6560]">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-[#3F3B37]">
+                              Source:
                             </span>
-                          )}
-                          {entry.sectionRef && <span>· {entry.sectionRef}</span>}
-                          {entry.pageNumber && (
-                            <span>· p.{entry.pageNumber}</span>
-                          )}
+                            <span>{entry.sourceTitle}</span>
+                            {entry.sourceDocumentId && (
+                              <span className="font-mono text-[#524E4A]">
+                                ({entry.sourceDocumentId})
+                              </span>
+                            )}
+                            {entry.sourceDocumentVersion && (
+                              <span>· {entry.sourceDocumentVersion}</span>
+                            )}
+                            {entry.sectionRef && <span>· {entry.sectionRef}</span>}
+                            {entry.pageNumber && (
+                              <span>· p.{entry.pageNumber}</span>
+                            )}
+                          </div>
+                          {entry.entryOrigin === "guideline_pdf" &&
+                            entry.sourceDocumentId && (
+                              <button
+                                type="button"
+                                onClick={() => void handleInspectSourcePdf(entry)}
+                                className="inline-flex items-center gap-1 font-semibold text-[#141414] hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Open Source PDF
+                              </button>
+                            )}
                         </div>
                       )}
                     </div>
@@ -934,6 +1105,17 @@ export default function KnowledgeHubPage() {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E1DA] text-sm text-[#141414]"
                 />
               </div>
+
+              {editingEntry?.extractedText && (
+                <div className="rounded-xl bg-[#FAF8F6] border border-[#E7E1DA] px-3.5 py-2.5 text-xs">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-[#6B6560]">
+                    Original PDF Excerpt (Locked)
+                  </p>
+                  <p className="mt-1 text-[#524E4A] whitespace-pre-wrap">
+                    {editingEntry.extractedText}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-[#3F3B37] mb-1">
@@ -1196,6 +1378,34 @@ export default function KnowledgeHubPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Source PDF Preview Modal */}
+      {sourcePdfUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white border border-[#E7E1DA] rounded-[24px] max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[#E7E1DA] bg-[#FAF8F6]">
+              <p className="text-sm font-bold text-[#141414] truncate">
+                {sourcePdfTitle}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  URL.revokeObjectURL(sourcePdfUrl);
+                  setSourcePdfUrl(null);
+                }}
+                aria-label="Close source PDF modal"
+                className="p-1.5 rounded-lg hover:bg-[#EFECE7]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <iframe
+              src={sourcePdfUrl}
+              title={sourcePdfTitle}
+              className="w-full flex-1 bg-[#F3EDE8]"
+            />
           </div>
         </div>
       )}

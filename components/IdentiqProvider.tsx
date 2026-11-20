@@ -150,6 +150,7 @@ export interface IdentiqContextValue {
     severity?: "high" | "medium" | "low";
     sourceDocumentId?: string;
     sourceTitle?: string;
+    sourceDocumentVersion?: string;
     sectionRef?: string;
     pageNumber?: number;
     versionId?: string;
@@ -157,6 +158,11 @@ export interface IdentiqContextValue {
   }) => Promise<KnowledgeEntry>;
   publishKnowledgeEntry: (entryId: string, note?: string) => Promise<KnowledgeEntry>;
   archiveKnowledgeEntry: (entryId: string) => Promise<KnowledgeEntry>;
+  getKnowledgeRequestContext: () => {
+    organisationId: string;
+    headers: Record<string, string>;
+  };
+  reloadSelectedBrandKnowledge: () => Promise<void>;
   setActiveReviewId: (id: string) => void;
   addReview: (review: ReviewSubmission, brandId?: string) => Promise<void>;
   updateReviewStatus: (
@@ -577,6 +583,10 @@ function mapManagedEntryToUiEntry(entry: ManagedKnowledgeEntry): KnowledgeEntry 
     kind: entry.kind,
     title: entry.title,
     content: entry.content,
+    entryOrigin: entry.entryOrigin,
+    extractedText: entry.extractedText,
+    sourceProposalId: entry.sourceProposalId,
+    structuredFacts: entry.structuredFacts,
     preferredTerm: entry.preferredTerm,
     avoidTerm: entry.avoidTerm,
     hexCodes: entry.hexCodes,
@@ -595,8 +605,10 @@ function mapManagedEntryToUiEntry(entry: ManagedKnowledgeEntry): KnowledgeEntry 
     versionId: entry.versionId,
     sourceDocumentId: entry.sourceDocumentId,
     sourceTitle: entry.sourceTitle,
+    sourceDocumentVersion: entry.sourceDocumentVersion,
     sectionRef: entry.sectionRef,
     pageNumber: entry.pageNumber,
+    createdAt: entry.createdAt,
     publishedAt: entry.publishedAt,
     archivedAt: entry.archivedAt,
     updatedAt: entry.updatedAt.split("T")[0] || entry.updatedAt,
@@ -2208,6 +2220,18 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
+  const getKnowledgeRequestContext = useCallback(() => {
+    return {
+      organisationId: getEffectiveOrgId(),
+      headers: buildKnowledgeAuthHeaders(),
+    };
+  }, [getEffectiveOrgId, buildKnowledgeAuthHeaders]);
+
+  const reloadSelectedBrandKnowledge = useCallback(async () => {
+    if (!selectedBrandId) return;
+    await loadKnowledgeForBrand(selectedBrandId);
+  }, [selectedBrandId, loadKnowledgeForBrand]);
+
   const saveKnowledgeEntry = useCallback(
     async (input: {
       id?: string;
@@ -2224,6 +2248,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       severity?: "high" | "medium" | "low";
       sourceDocumentId?: string;
       sourceTitle?: string;
+      sourceDocumentVersion?: string;
       sectionRef?: string;
       pageNumber?: number;
       versionId?: string;
@@ -2234,6 +2259,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Please select or create a brand before saving rules.");
       }
       const orgParam = getEffectiveOrgId();
+      const existingEntry = input.id
+        ? knowledge.find((k) => k.id === input.id)
+        : undefined;
       setKnowledgeMutating(true);
       setKnowledgeError(null);
       try {
@@ -2251,6 +2279,9 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
             section: input.section,
             title: input.title,
             content: input.content,
+            ...(existingEntry?.entryOrigin
+              ? { entryOrigin: existingEntry.entryOrigin }
+              : {}),
             ...(input.preferredTerm ? { preferredTerm: input.preferredTerm } : {}),
             ...(input.avoidTerm ? { avoidTerm: input.avoidTerm } : {}),
             ...(input.hexCodes && input.hexCodes.length > 0
@@ -2268,6 +2299,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
               ? { sourceDocumentId: input.sourceDocumentId }
               : {}),
             ...(input.sourceTitle ? { sourceTitle: input.sourceTitle } : {}),
+            ...(input.sourceDocumentVersion || existingEntry?.sourceDocumentVersion
+              ? {
+                  sourceDocumentVersion:
+                    input.sourceDocumentVersion ||
+                    existingEntry?.sourceDocumentVersion,
+                }
+              : {}),
             ...(input.sectionRef ? { sectionRef: input.sectionRef } : {}),
             ...(input.pageNumber ? { pageNumber: input.pageNumber } : {}),
             ...(input.versionId ? { versionId: input.versionId } : {}),
@@ -2333,6 +2371,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     },
     [
       selectedBrandId,
+      knowledge,
       getEffectiveOrgId,
       buildKnowledgeAuthHeaders,
       settings.reviewerName,
@@ -2793,6 +2832,8 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         saveKnowledgeEntry,
         publishKnowledgeEntry,
         archiveKnowledgeEntry,
+        getKnowledgeRequestContext,
+        reloadSelectedBrandKnowledge,
         setActiveReviewId,
         addReview,
         updateReviewStatus,

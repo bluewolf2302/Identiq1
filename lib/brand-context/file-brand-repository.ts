@@ -291,6 +291,19 @@ export class FileBackedBrandKnowledgeRepository
 
       const requestedStatus: PublicationStatus =
         input.publicationStatus ?? "draft";
+
+      // Idempotent duplicate protection: if publishIdempotencyKey matches an existing entry or snapshot, return it unchanged
+      if (input.publishIdempotencyKey) {
+        const dup = store.entries.find(
+          (e) =>
+            e.brandId === input.brandId &&
+            e.publishIdempotencyKey === input.publishIdempotencyKey,
+        );
+        if (dup) {
+          return dup;
+        }
+      }
+
       const nextVersionNumber = existing
         ? existing.publicationStatus === "published" ||
           existing.publicationStatus === "archived"
@@ -305,6 +318,20 @@ export class FileBackedBrandKnowledgeRepository
         ?.map((h) => h.trim().toUpperCase())
         .filter((h) => /^#[0-9A-F]{6}$/.test(h));
 
+      // Requirement: Editing a proposal/entry must NEVER overwrite the immutable extractedText
+      const preservedExtractedText =
+        existing?.extractedText ?? input.extractedText;
+      const resolvedOrigin =
+        existing?.entryOrigin ??
+        input.entryOrigin ??
+        (preservedExtractedText ? "guideline_pdf" : "manual");
+      const resolvedDocVersion =
+        input.sourceDocumentVersion?.trim() || existing?.sourceDocumentVersion;
+      const resolvedProposalId =
+        existing?.sourceProposalId ?? input.sourceProposalId?.trim();
+      const resolvedStructuredFacts =
+        input.structuredFacts ?? existing?.structuredFacts;
+
       const nextEntry: ManagedKnowledgeEntry = {
         id: entryId,
         brandId: brand.brandId,
@@ -313,6 +340,10 @@ export class FileBackedBrandKnowledgeRepository
         ...(input.kind ? { kind: input.kind } : existing?.kind ? { kind: existing.kind } : {}),
         title: input.title.trim(),
         content: input.content.trim(),
+        entryOrigin: resolvedOrigin,
+        ...(preservedExtractedText ? { extractedText: preservedExtractedText } : {}),
+        ...(resolvedProposalId ? { sourceProposalId: resolvedProposalId } : {}),
+        ...(resolvedStructuredFacts ? { structuredFacts: resolvedStructuredFacts } : {}),
         ...(input.preferredTerm?.trim()
           ? { preferredTerm: input.preferredTerm.trim() }
           : {}),
@@ -341,14 +372,27 @@ export class FileBackedBrandKnowledgeRepository
           input.sourceTitle?.trim() ||
           existing?.sourceTitle ||
           `${brand.brandName} Knowledge Hub`,
+        ...(resolvedDocVersion ? { sourceDocumentVersion: resolvedDocVersion } : {}),
         ...(input.sectionRef?.trim()
           ? { sectionRef: input.sectionRef.trim() }
-          : { sectionRef: input.section }),
-        ...(input.pageNumber ? { pageNumber: input.pageNumber } : {}),
+          : existing?.sectionRef
+            ? { sectionRef: existing.sectionRef }
+            : {}),
+        ...(input.pageNumber
+          ? { pageNumber: input.pageNumber }
+          : existing?.pageNumber
+            ? { pageNumber: existing.pageNumber }
+            : {}),
         ...(input.applicableTo ? { applicableTo: input.applicableTo } : {}),
         owner: input.owner?.trim() || existing?.owner || "Brand Governance Lead",
+        createdAt: existing?.createdAt || now,
         updatedAt: now,
         ...(requestedStatus === "published" ? { publishedAt: now } : {}),
+        ...(input.publishIdempotencyKey
+          ? { publishIdempotencyKey: input.publishIdempotencyKey }
+          : existing?.publishIdempotencyKey
+            ? { publishIdempotencyKey: existing.publishIdempotencyKey }
+            : {}),
       };
 
       if (existingIndex >= 0) {
@@ -384,6 +428,7 @@ export class FileBackedBrandKnowledgeRepository
     organisationId?: string;
     actor?: string;
     note?: string;
+    publishIdempotencyKey?: string;
   }): Promise<{
     entry: ManagedKnowledgeEntry;
     snapshot: BrandVersionSnapshot;
@@ -417,14 +462,40 @@ export class FileBackedBrandKnowledgeRepository
         throw new KnowledgeEntryNotFoundError(input.entryId, input.brandId);
       }
 
-      const now = new Date().toISOString();
       const current = store.entries[idx]!;
+      const latestSnapshot = store.snapshots
+        .filter((s) => s.brandId === input.brandId)
+        .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+
+      // Idempotent / duplicate-resistant publish check:
+      // If entry is already published with the same publishIdempotencyKey (or already published unchanged without force),
+      // return the existing entry and active snapshot without creating duplicate brand versions.
+      if (
+        current.publicationStatus === "published" &&
+        latestSnapshot &&
+        ((input.publishIdempotencyKey &&
+          current.publishIdempotencyKey === input.publishIdempotencyKey) ||
+          latestSnapshot.entries.some(
+            (se) =>
+              se.id === current.id &&
+              se.content === current.content &&
+              se.title === current.title &&
+              se.section === current.section,
+          ))
+      ) {
+        return { entry: current, snapshot: latestSnapshot };
+      }
+
+      const now = new Date().toISOString();
       const publishedEntry: ManagedKnowledgeEntry = {
         ...current,
         publicationStatus: "published",
         publishedAt: now,
         archivedAt: undefined,
         updatedAt: now,
+        ...(input.publishIdempotencyKey
+          ? { publishIdempotencyKey: input.publishIdempotencyKey }
+          : {}),
       };
       store.entries[idx] = publishedEntry;
 

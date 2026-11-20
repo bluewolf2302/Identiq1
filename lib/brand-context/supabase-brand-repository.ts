@@ -14,9 +14,11 @@ import type {
   BrandContextQuery,
   BrandKnowledgeRecord,
   BrandVersionSnapshot,
+  EntryOrigin,
   ManagedKnowledgeEntry,
   ManagedKnowledgeSection,
   PublicationStatus,
+  StructuredFactMetadata,
   WorkspaceBrandRecord,
 } from "./types";
 
@@ -25,15 +27,22 @@ interface IdentiqRowMeta {
   versionNumber?: number;
   section?: ManagedKnowledgeSection;
   kind?: string;
+  entryOrigin?: EntryOrigin;
+  extractedText?: string;
+  sourceDocumentVersion?: string;
+  sourceProposalId?: string;
+  structuredFacts?: StructuredFactMetadata;
   preferredTerm?: string;
   avoidTerm?: string;
   hexCodes?: string[];
   fontFamily?: string;
   severity?: "high" | "medium" | "low";
   owner?: string;
+  createdAt?: string;
   updatedAt?: string;
   publishedAt?: string;
   archivedAt?: string;
+  publishIdempotencyKey?: string;
 }
 
 function parseApplicableAndMeta(raw: unknown): {
@@ -158,6 +167,10 @@ export class SupabaseBrandKnowledgeRepository
       ...(meta.kind ? { kind: meta.kind } : {}),
       title: String(row.rule_name || "Brand Rule"),
       content: String(row.description || row.rule_name || ""),
+      entryOrigin: meta.entryOrigin ?? (meta.extractedText ? "guideline_pdf" : "manual"),
+      ...(meta.extractedText ? { extractedText: meta.extractedText } : {}),
+      ...(meta.sourceProposalId ? { sourceProposalId: meta.sourceProposalId } : {}),
+      ...(meta.structuredFacts ? { structuredFacts: meta.structuredFacts } : {}),
       ...(meta.preferredTerm ? { preferredTerm: meta.preferredTerm } : {}),
       ...(meta.avoidTerm ? { avoidTerm: meta.avoidTerm } : {}),
       ...(meta.severity ? { severity: meta.severity } : {}),
@@ -172,6 +185,7 @@ export class SupabaseBrandKnowledgeRepository
         typeof row.source_title === "string" && row.source_title.trim()
           ? row.source_title.trim()
           : "Brand Guidelines",
+      ...(meta.sourceDocumentVersion ? { sourceDocumentVersion: meta.sourceDocumentVersion } : {}),
       ...(typeof row.section === "string" && row.section.trim()
         ? { sectionRef: row.section.trim() }
         : {}),
@@ -180,9 +194,11 @@ export class SupabaseBrandKnowledgeRepository
         : {}),
       ...(applicableTo ? { applicableTo } : {}),
       owner: meta.owner || "Brand Governance Lead",
+      createdAt: meta.createdAt || String(row.created_at || new Date().toISOString()),
       updatedAt: meta.updatedAt || String(row.created_at || new Date().toISOString()),
       ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
       ...(meta.archivedAt ? { archivedAt: meta.archivedAt } : {}),
+      ...(meta.publishIdempotencyKey ? { publishIdempotencyKey: meta.publishIdempotencyKey } : {}),
     };
   }
 
@@ -214,6 +230,10 @@ export class SupabaseBrandKnowledgeRepository
       ...(meta.kind ? { kind: meta.kind } : {}),
       title: String(row.fact_name || "Brand Fact"),
       content: String(row.fact_value || row.fact_name || ""),
+      entryOrigin: meta.entryOrigin ?? (meta.extractedText ? "guideline_pdf" : "manual"),
+      ...(meta.extractedText ? { extractedText: meta.extractedText } : {}),
+      ...(meta.sourceProposalId ? { sourceProposalId: meta.sourceProposalId } : {}),
+      ...(meta.structuredFacts ? { structuredFacts: meta.structuredFacts } : {}),
       ...(meta.avoidTerm ? { avoidTerm: meta.avoidTerm } : {}),
       ...(typeof row.supporting_evidence === "string" && row.supporting_evidence.trim()
         ? { supportingEvidence: row.supporting_evidence.trim() }
@@ -230,6 +250,7 @@ export class SupabaseBrandKnowledgeRepository
         typeof row.source_title === "string" && row.source_title.trim()
           ? row.source_title.trim()
           : String(row.source || "Approved Brand Facts"),
+      ...(meta.sourceDocumentVersion ? { sourceDocumentVersion: meta.sourceDocumentVersion } : {}),
       ...(typeof row.section === "string" && row.section.trim()
         ? { sectionRef: row.section.trim() }
         : {}),
@@ -238,9 +259,11 @@ export class SupabaseBrandKnowledgeRepository
         : {}),
       ...(applicableTo ? { applicableTo } : {}),
       owner: meta.owner || "Brand Governance Lead",
+      createdAt: meta.createdAt || String(row.created_at || new Date().toISOString()),
       updatedAt: meta.updatedAt || String(row.created_at || new Date().toISOString()),
       ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
       ...(meta.archivedAt ? { archivedAt: meta.archivedAt } : {}),
+      ...(meta.publishIdempotencyKey ? { publishIdempotencyKey: meta.publishIdempotencyKey } : {}),
     };
   }
 
@@ -265,6 +288,10 @@ export class SupabaseBrandKnowledgeRepository
       ...(meta.kind ? { kind: meta.kind } : {}),
       title: String(row.file_name || "Visual Standard"),
       content: String(row.file_path || row.file_name || ""),
+      entryOrigin: meta.entryOrigin ?? (meta.extractedText ? "guideline_pdf" : "manual"),
+      ...(meta.extractedText ? { extractedText: meta.extractedText } : {}),
+      ...(meta.sourceProposalId ? { sourceProposalId: meta.sourceProposalId } : {}),
+      ...(meta.structuredFacts ? { structuredFacts: meta.structuredFacts } : {}),
       ...(meta.hexCodes ? { hexCodes: meta.hexCodes } : {}),
       ...(meta.fontFamily ? { fontFamily: meta.fontFamily } : {}),
       publicationStatus,
@@ -278,6 +305,7 @@ export class SupabaseBrandKnowledgeRepository
         typeof row.source_title === "string" && row.source_title.trim()
           ? row.source_title.trim()
           : "Visual Identity Guidelines",
+      ...(meta.sourceDocumentVersion ? { sourceDocumentVersion: meta.sourceDocumentVersion } : {}),
       ...(typeof row.section === "string" && row.section.trim()
         ? { sectionRef: row.section.trim() }
         : {}),
@@ -286,9 +314,11 @@ export class SupabaseBrandKnowledgeRepository
         : {}),
       ...(applicableTo ? { applicableTo } : {}),
       owner: meta.owner || "Design Systems",
+      createdAt: meta.createdAt || String(row.created_at || new Date().toISOString()),
       updatedAt: meta.updatedAt || String(row.created_at || new Date().toISOString()),
       ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
       ...(meta.archivedAt ? { archivedAt: meta.archivedAt } : {}),
+      ...(meta.publishIdempotencyKey ? { publishIdempotencyKey: meta.publishIdempotencyKey } : {}),
     };
   }
 
@@ -480,7 +510,9 @@ export class SupabaseBrandKnowledgeRepository
     const combined: ManagedKnowledgeEntry[] = [
       ...(rulesRes.data ?? []).map((r) => this.mapRuleRow(r, query.brandId, orgId)),
       ...(factsRes.data ?? []).map((f) => this.mapFactRow(f, query.brandId, orgId)),
-      ...(assetsRes.data ?? []).map((a) => this.mapAssetRow(a, query.brandId, orgId)),
+      ...(assetsRes.data ?? [])
+        .filter((a) => String(a.asset_category || "") !== "guideline_pdf")
+        .map((a) => this.mapAssetRow(a, query.brandId, orgId)),
     ];
 
     if (!query.status || query.status === "all") {
@@ -511,6 +543,15 @@ export class SupabaseBrandKnowledgeRepository
       ? existingEntries.find((e) => e.id === input.id)
       : undefined;
 
+    if (input.publishIdempotencyKey) {
+      const dup = existingEntries.find(
+        (e) => e.publishIdempotencyKey === input.publishIdempotencyKey,
+      );
+      if (dup) {
+        return dup;
+      }
+    }
+
     const now = new Date().toISOString();
     const publicationStatus: PublicationStatus = input.publicationStatus ?? "draft";
     const versionNumber = existing
@@ -523,19 +564,42 @@ export class SupabaseBrandKnowledgeRepository
     const entryId = existing?.id || input.id || crypto.randomUUID();
     const approved = publicationStatus === "published";
 
+    const preservedExtractedText = existing?.extractedText ?? input.extractedText;
+    const resolvedOrigin: EntryOrigin =
+      existing?.entryOrigin ??
+      input.entryOrigin ??
+      (preservedExtractedText ? "guideline_pdf" : "manual");
+    const resolvedDocVersion =
+      input.sourceDocumentVersion?.trim() || existing?.sourceDocumentVersion;
+    const resolvedProposalId =
+      existing?.sourceProposalId ?? input.sourceProposalId?.trim();
+    const resolvedStructuredFacts =
+      input.structuredFacts ?? existing?.structuredFacts;
+
     const meta: IdentiqRowMeta = {
       publicationStatus,
       versionNumber,
       section: input.section,
       kind: input.kind ?? existing?.kind,
+      entryOrigin: resolvedOrigin,
+      ...(preservedExtractedText ? { extractedText: preservedExtractedText } : {}),
+      ...(resolvedDocVersion ? { sourceDocumentVersion: resolvedDocVersion } : {}),
+      ...(resolvedProposalId ? { sourceProposalId: resolvedProposalId } : {}),
+      ...(resolvedStructuredFacts ? { structuredFacts: resolvedStructuredFacts } : {}),
       preferredTerm: input.preferredTerm?.trim() || undefined,
       avoidTerm: input.avoidTerm?.trim() || undefined,
       hexCodes: input.hexCodes,
       fontFamily: input.fontFamily?.trim() || undefined,
       severity: input.severity,
       owner: input.owner?.trim() || existing?.owner || "Brand Governance Lead",
+      createdAt: existing?.createdAt || now,
       updatedAt: now,
       ...(approved ? { publishedAt: now } : {}),
+      ...(input.publishIdempotencyKey
+        ? { publishIdempotencyKey: input.publishIdempotencyKey }
+        : existing?.publishIdempotencyKey
+          ? { publishIdempotencyKey: existing.publishIdempotencyKey }
+          : {}),
     };
 
     const applicablePayload = serializeApplicableAndMeta(
@@ -563,8 +627,8 @@ export class SupabaseBrandKnowledgeRepository
         source_document_id: sourceDocumentId,
         source_title: sourceTitle,
         version_id: versionId,
-        page_number: input.pageNumber ?? null,
-        section: input.sectionRef ?? "visual",
+        page_number: input.pageNumber ?? existing?.pageNumber ?? null,
+        section: input.sectionRef ?? existing?.sectionRef ?? null,
         applicable_to: applicablePayload,
       };
       const path = existing
@@ -684,6 +748,7 @@ export class SupabaseBrandKnowledgeRepository
     organisationId?: string;
     actor?: string;
     note?: string;
+    publishIdempotencyKey?: string;
   }): Promise<{
     entry: ManagedKnowledgeEntry;
     snapshot: BrandVersionSnapshot;
@@ -699,13 +764,33 @@ export class SupabaseBrandKnowledgeRepository
       throw new CrossTenantBrandAccessError(input.brandId, input.organisationId);
     }
 
-    const entries = await this.listKnowledgeEntries({
-      brandId: input.brandId,
-      organisationId: orgId,
-    });
+    const [entries, existingSnapshots] = await Promise.all([
+      this.listKnowledgeEntries({
+        brandId: input.brandId,
+        organisationId: orgId,
+      }),
+      this.listVersionSnapshots(input.brandId, orgId),
+    ]);
     const current = entries.find((e) => e.id === input.entryId);
     if (!current) {
       throw new KnowledgeEntryNotFoundError(input.entryId, input.brandId);
+    }
+
+    const latestSnapshot = existingSnapshots[0];
+    if (
+      current.publicationStatus === "published" &&
+      latestSnapshot &&
+      ((input.publishIdempotencyKey &&
+        current.publishIdempotencyKey === input.publishIdempotencyKey) ||
+        latestSnapshot.entries.some(
+          (se) =>
+            se.id === current.id &&
+            se.content === current.content &&
+            se.title === current.title &&
+            se.section === current.section,
+        ))
+    ) {
+      return { entry: current, snapshot: latestSnapshot };
     }
 
     const now = new Date().toISOString();
@@ -714,14 +799,22 @@ export class SupabaseBrandKnowledgeRepository
       versionNumber: current.versionNumber,
       section: current.section,
       kind: current.kind,
+      entryOrigin: current.entryOrigin,
+      extractedText: current.extractedText,
+      sourceDocumentVersion: current.sourceDocumentVersion,
+      sourceProposalId: current.sourceProposalId,
+      structuredFacts: current.structuredFacts,
       preferredTerm: current.preferredTerm,
       avoidTerm: current.avoidTerm,
       hexCodes: current.hexCodes,
       fontFamily: current.fontFamily,
       severity: current.severity,
       owner: current.owner,
+      createdAt: current.createdAt || current.updatedAt,
       updatedAt: now,
       publishedAt: now,
+      publishIdempotencyKey:
+        input.publishIdempotencyKey ?? current.publishIdempotencyKey,
     };
     const applicablePayload = serializeApplicableAndMeta(
       current.applicableTo,
@@ -759,6 +852,9 @@ export class SupabaseBrandKnowledgeRepository
       publishedAt: now,
       archivedAt: undefined,
       updatedAt: now,
+      ...(input.publishIdempotencyKey
+        ? { publishIdempotencyKey: input.publishIdempotencyKey }
+        : {}),
     };
 
     const snapshot = await this.recordVersionSnapshot(

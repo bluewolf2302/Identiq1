@@ -56,8 +56,22 @@ export async function resolveServerApiTenantContext(
 ): Promise<ServerTenantAuthResult> {
   const requestedOrgId = options.requestedOrganisationId?.trim() || null;
   const config = getSupabaseServerConfig();
+  const isHostedRuntime =
+    process.env.IDENTIQ_ALLOW_LOCAL_FILE_STORE !== "1" &&
+    process.env.IDENTIQ_FORCE_LOCAL_KNOWLEDGE_STORE !== "1" &&
+    (process.env.VERCEL === "1" ||
+      process.env.VERCEL_ENV === "production" ||
+      process.env.VERCEL_ENV === "preview");
 
   if (!config.configured || !config.supabaseUrl) {
+    if (isHostedRuntime) {
+      return {
+        ok: false,
+        status: 503,
+        error:
+          "Hosted workspace persistence and authentication are not configured for this deployment.",
+      };
+    }
     return {
       ok: true,
       mode: "DEMO_LOCAL",

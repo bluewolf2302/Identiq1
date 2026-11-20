@@ -115,6 +115,10 @@ export interface KnowledgeEntry {
   kind?: string;
   title: string;
   content: string;
+  entryOrigin?: "manual" | "guideline_pdf";
+  extractedText?: string;
+  sourceProposalId?: string;
+  structuredFacts?: import("./brand-context/types").StructuredFactMetadata;
   preferredTerm?: string;
   avoidTerm?: string;
   hexCodes?: string[];
@@ -128,10 +132,12 @@ export interface KnowledgeEntry {
   versionId?: string;
   sourceDocumentId?: string;
   sourceTitle?: string;
+  sourceDocumentVersion?: string;
   sectionRef?: string;
   pageNumber?: number;
   publishedAt?: string;
   archivedAt?: string;
+  createdAt?: string;
   updatedAt: string;
   owner: string;
 }

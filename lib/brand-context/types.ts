@@ -106,6 +106,30 @@ export type ManagedKnowledgeSection = z.infer<
   typeof ManagedKnowledgeSectionSchema
 >;
 
+export const EntryOriginSchema = z.enum(["manual", "guideline_pdf"]);
+export type EntryOrigin = z.infer<typeof EntryOriginSchema>;
+
+export const StructuredFactMetadataSchema = z
+  .object({
+    productName: z.string().trim().min(1).optional(),
+    price: z.string().trim().min(1).optional(),
+    numericPrice: z.number().finite().nonnegative().optional(),
+    currency: z.string().trim().min(1).optional(),
+    validFrom: z.string().trim().min(1).optional(),
+    validUntil: z.string().trim().min(1).optional(),
+    promoPeriod: z.string().trim().min(1).optional(),
+    approvedClaim: z.string().trim().min(1).optional(),
+    disclaimer: z.string().trim().min(1).optional(),
+    restrictedTerm: z.string().trim().min(1).optional(),
+    preferredTerm: z.string().trim().min(1).optional(),
+    isExpiredPromo: z.boolean().optional(),
+  })
+  .strict();
+
+export type StructuredFactMetadata = z.infer<
+  typeof StructuredFactMetadataSchema
+>;
+
 export const ManagedKnowledgeEntrySchema = z
   .object({
     id: z.string().trim().min(1),
@@ -115,6 +139,10 @@ export const ManagedKnowledgeEntrySchema = z
     kind: z.string().trim().min(1).optional(),
     title: z.string().trim().min(1),
     content: z.string().trim().min(1),
+    entryOrigin: EntryOriginSchema.optional(),
+    extractedText: z.string().min(1).optional(),
+    sourceProposalId: z.string().trim().min(1).optional(),
+    structuredFacts: StructuredFactMetadataSchema.optional(),
     preferredTerm: z.string().trim().min(1).optional(),
     avoidTerm: z.string().trim().min(1).optional(),
     hexCodes: z.array(z.string().trim().regex(/^#[0-9a-fA-F]{6}$/)).optional(),
@@ -127,13 +155,16 @@ export const ManagedKnowledgeEntrySchema = z
     versionId: z.string().trim().min(1),
     sourceDocumentId: z.string().trim().min(1),
     sourceTitle: z.string().trim().min(1),
+    sourceDocumentVersion: z.string().trim().min(1).optional(),
     sectionRef: z.string().trim().min(1).optional(),
     pageNumber: z.number().int().positive().optional(),
     applicableTo: ApplicabilitySchema.optional(),
     owner: z.string().trim().min(1),
+    createdAt: z.string().trim().min(1).optional(),
     updatedAt: z.string().trim().min(1),
     publishedAt: z.string().trim().min(1).optional(),
     archivedAt: z.string().trim().min(1).optional(),
+    publishIdempotencyKey: z.string().trim().min(1).optional(),
   })
   .strict();
 
