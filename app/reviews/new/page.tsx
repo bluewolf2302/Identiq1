@@ -24,6 +24,7 @@ import {
   PastelTheme,
   ReviewSubmission,
 } from "@/lib/types";
+import { compareReviewFindingPayloads } from "@/lib/analysis/comparison";
 
 const CONTENT_TYPES: ContentType[] = [
   "Campaign Copy",
@@ -65,6 +66,8 @@ export default function NewReviewPage() {
   const router = useRouter();
   const {
     knowledge,
+    reviews,
+    session,
     addReview,
     viewerProfile,
     user,
@@ -72,6 +75,7 @@ export default function NewReviewPage() {
     brandId,
     brandName,
     persistenceMode,
+    organisationId,
   } = useIdentiq();
   const actor = resolveActiveActorIdentity({ viewerProfile, authUser: user });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -244,7 +248,15 @@ export default function NewReviewPage() {
     setStage("reading");
 
     try {
-      const submissionId = `submission-${crypto.randomUUID()}`;
+      const runtimeParams =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search)
+          : new URLSearchParams();
+      const previousSubmissionId = runtimeParams.get("submissionId");
+      const previousAnalysisRunId = runtimeParams.get("previousAnalysisRunId");
+      const previousReviewId = runtimeParams.get("reviewId");
+      const submissionId =
+        previousSubmissionId || `submission-${crypto.randomUUID()}`;
       const approvedRules = knowledge
         .filter((k) => k.status === "Approved")
         .map((k) => `${k.title}: ${k.content}`);
@@ -263,6 +275,7 @@ export default function NewReviewPage() {
           ...(assetBase64 ? { assetBase64 } : {}),
           assetMimeType,
           knowledgeSummary: approvedRules,
+          ...(previousAnalysisRunId ? { previousAnalysisRunId } : {}),
         }),
       });
 
@@ -339,11 +352,61 @@ export default function NewReviewPage() {
         fallbackUsed: data.fallbackUsed,
         analysisStatus: data.analysisStatus ?? "COMPLETED",
         analysisRunId: data.analysisRunId,
+        previousAnalysisRunId: data.previousAnalysisRunId,
+        coverage: data.coverage,
         ocrBlocks: data.ocrBlocks,
         visualSummary: data.visualSummary,
       };
 
+      if (previousAnalysisRunId) {
+        const previousReview =
+          reviews.find((review) => review.id === previousReviewId) ??
+          reviews.find((review) => review.analysisRunId === previousAnalysisRunId);
+        if (previousReview && data.analysisRunId) {
+          const comparison = compareReviewFindingPayloads(
+            previousAnalysisRunId,
+            data.analysisRunId,
+            previousReview.analysisStatus ?? "COMPLETED",
+            data.analysisStatus ?? "COMPLETED",
+            previousReview.findings,
+            data.findings,
+          );
+          newReview.comparison = comparison;
+        }
+      }
+
       await addReview(newReview, brandId || undefined);
+      if (newReview.comparison && organisationId) {
+        try {
+          const response = await fetch("/api/analysis-comparisons", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(session?.accessToken
+                ? { Authorization: `Bearer ${session.accessToken}` }
+                : {}),
+            },
+            body: JSON.stringify({
+              reviewId: newReview.id,
+              organisationId,
+              comparison: newReview.comparison,
+            }),
+          });
+          if (!response.ok) {
+            notify(
+              `Review was saved, but its analysis comparison could not be saved (HTTP ${response.status}).`,
+              "info",
+            );
+          }
+        } catch (error) {
+          const reason =
+            error instanceof Error ? ` ${error.message}` : "";
+          notify(
+            `Review was saved, but its analysis comparison could not be saved.${reason}`,
+            "info",
+          );
+        }
+      }
       if (data.analysisStatus === "PARTIAL") {
         notify(
           `Review ready (${data.findings.length} findings, partial AI coverage)`,

@@ -22,6 +22,7 @@ export interface ReviewFinding {
   category: FindingCategory;
   title: string;
   description: string;
+  explanation?: string;
   severity: FindingSeverity;
   evidenceStatus: EvidenceStatus;
   detectedValue: string;
@@ -88,6 +89,9 @@ export interface ReviewSubmission {
   fallbackUsed?: boolean;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
+  previousAnalysisRunId?: string;
+  coverage?: import("./contracts/analysis").AnalysisCoverage;
+  comparison?: import("./analysis/comparison").AnalysisComparison;
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }
@@ -164,6 +168,7 @@ export interface AnalysisRequestPayload {
   assetBase64?: string;
   assetMimeType?: string;
   knowledgeSummary?: string[];
+  previousAnalysisRunId?: string;
 }
 
 export interface AnalysisResponsePayload {
@@ -175,6 +180,8 @@ export interface AnalysisResponsePayload {
   analysisRunId?: string;
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   fallbackUsed?: boolean;
+  coverage?: import("./contracts/analysis").AnalysisCoverage;
+  previousAnalysisRunId?: string;
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }

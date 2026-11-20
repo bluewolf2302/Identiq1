@@ -148,6 +148,21 @@ test("passes brand, submission, and platform identifiers to retrieval", async ()
   });
 });
 
+test("includes structured coverage and preserves re-analysis metadata", async () => {
+  const { orchestrator } = createOrchestrator({ warnings: ["NO_APPROVED_VISUAL_ASSETS"] });
+  const response = await orchestrator.analyze({
+    ...request,
+    previousAnalysisRunId: "run-previous",
+  });
+
+  assert.equal(response.coverage?.brandContext.status, "COMPLETED");
+  assert.equal(response.coverage?.deterministic.status, "COMPLETED");
+  assert.equal(response.coverage?.semanticAI.status, "COMPLETED");
+  assert.equal(response.coverage?.ocr.status, "SKIPPED");
+  assert.equal(response.coverage?.visual.status, "SKIPPED");
+  assert.equal(response.previousAnalysisRunId, "run-previous");
+});
+
 test("marks valid incomplete brand context as partial", async () => {
   const { orchestrator } = createOrchestrator({
     warnings: ["NO_APPROVED_PRODUCT_FACTS"],
