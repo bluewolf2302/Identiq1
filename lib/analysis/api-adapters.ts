@@ -265,7 +265,9 @@ export function adaptBackendResponse(
     mapFinding(finding, content),
   );
   const summary =
-    parsed.data.analysisStatus === "PARTIAL"
+    parsed.data.analysisStatus === "FAILED"
+      ? "The governance analysis failed and no clean pass is asserted."
+      : parsed.data.analysisStatus === "PARTIAL"
       ? "Analysis completed with partial visual/brand context coverage."
       : findings.length === 0
         ? "No governance findings were identified."

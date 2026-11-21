@@ -283,45 +283,65 @@ export default function NewReviewPage() {
       const res = await payloadPromise;
       const resContentType = res.headers.get("content-type") || "";
       const responseText = await res.text();
+      let data: AnalysisResponsePayload | undefined;
       if (!res.ok) {
         let errorMessage = "Analysis request failed.";
         try {
-          const errorBody = JSON.parse(responseText) as { error?: unknown };
+          const errorBody = JSON.parse(responseText) as {
+            error?: unknown;
+            analysisStatus?: unknown;
+          };
+          if (errorBody.analysisStatus === "FAILED") {
+            try {
+              data = parseAnalysisResponsePayload(JSON.parse(responseText));
+              notify(
+                "Analysis failed and was safely marked FAILED. No clean pass is asserted.",
+                "error",
+              );
+            } catch (parseError) {
+              console.error(
+                "Analysis server returned an invalid FAILED response:",
+                parseError,
+              );
+            }
+          }
           if (typeof errorBody.error === "string" && errorBody.error.trim()) {
             errorMessage = errorBody.error;
           }
         } catch {
           // Keep the safe default for non-JSON error responses.
         }
-        throw new Error(errorMessage);
-      }
-
-      let data: AnalysisResponsePayload;
-
-      const isHtmlResponse =
-        resContentType.includes("text/html") ||
-        responseText.includes("<!DOCTYPE") ||
-        responseText.includes("<html");
-
-      if (isHtmlResponse) {
-        console.error(
-          "Analysis server returned HTML error page instead of JSON. Snippet:",
-          responseText.slice(0, 300),
-        );
-        throw new Error(
-          res.status === 504 || res.status === 503
-            ? "The analysis server timed out or was temporarily unavailable. Your creative asset and form details are safely preserved — please click Retry Review."
-            : "The server returned an unexpected HTML error page. Your creative asset and details are preserved — please click Retry Review.",
-        );
-      }
-
-      try {
-        data = parseAnalysisResponsePayload(JSON.parse(responseText));
-      } catch {
-        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
-          throw new Error("The review service returned an unexpected error response. Your creative asset and form details are preserved — please click Retry Review.");
+        if (!data) {
+          throw new Error(errorMessage);
         }
-        throw new Error("The analysis response was invalid. Please try again.");
+      }
+
+      if (!data) {
+        const isHtmlResponse =
+          resContentType.includes("text/html") ||
+          responseText.includes("<!DOCTYPE") ||
+          responseText.includes("<html");
+
+        if (isHtmlResponse) {
+          console.error(
+            "Analysis server returned HTML error page instead of JSON. Snippet:",
+            responseText.slice(0, 300),
+          );
+          throw new Error(
+            res.status === 504 || res.status === 503
+              ? "The analysis server timed out or was temporarily unavailable. Your creative asset and form details are safely preserved — please click Retry Review."
+              : "The server returned an unexpected HTML error page. Your creative asset and details are preserved — please click Retry Review.",
+          );
+        }
+
+        try {
+          data = parseAnalysisResponsePayload(JSON.parse(responseText));
+        } catch {
+          if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+            throw new Error("The review service returned an unexpected error response. Your creative asset and form details are preserved — please click Retry Review.");
+          }
+          throw new Error("The analysis response was invalid. Please try again.");
+        }
       }
 
       setStage("complete");
@@ -407,7 +427,12 @@ export default function NewReviewPage() {
           );
         }
       }
-      if (data.analysisStatus === "PARTIAL") {
+      if (data.analysisStatus === "FAILED") {
+        notify(
+          "Analysis failed. No clean pass is asserted.",
+          "error",
+        );
+      } else if (data.analysisStatus === "PARTIAL") {
         notify(
           `Review ready (${data.findings.length} findings, partial AI coverage)`,
           "info",

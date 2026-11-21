@@ -338,7 +338,10 @@ export async function analyzeCreativeVisually(
   }
 
   const dedupedFindings = deduplicateVisualFindings(validatedFindings);
-  const canonicalFindings = mapVisualFindingsToCanonical(dedupedFindings);
+  const canonicalFindings = mapVisualFindingsToCanonical(
+    dedupedFindings,
+    input.brandContext,
+  );
 
   const processedOkCount = pages.filter((p) => p.status === "ok").length;
   let finalStatus: VisualAnalysisResult["status"] = "COMPLETED";

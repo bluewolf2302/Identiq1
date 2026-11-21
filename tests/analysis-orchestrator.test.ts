@@ -171,6 +171,24 @@ test("marks valid incomplete brand context as partial", async () => {
   assert.equal(response.analysisStatus, "PARTIAL");
 });
 
+test("complete, partial, and hard-failure statuses remain distinct", async () => {
+  const complete = createOrchestrator({});
+  const completeResponse = await complete.orchestrator.analyze(request);
+  assert.equal(completeResponse.analysisStatus, "COMPLETED");
+
+  const partial = createOrchestrator({ warnings: ["NO_APPROVED_VISUAL_ASSETS"] });
+  const partialResponse = await partial.orchestrator.analyze(request);
+  assert.equal(partialResponse.analysisStatus, "PARTIAL");
+
+  const hardFailure = createOrchestrator({ deterministicError: new Error("engine failed") });
+  await assert.rejects(
+    hardFailure.orchestrator.analyze(request),
+    (error: unknown) =>
+      error instanceof AnalysisOrchestrationError &&
+      error.stage === "deterministic",
+  );
+});
+
 test("keeps distinct findings in the same category and removes exact duplicates", async () => {
   const duplicateDeterministic = finding("det-1", "Same issue", "deterministic", {
     location: { startOffset: 1, endOffset: 5 },
