@@ -1,0 +1,7 @@
+BEGIN;
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+ON TABLE public.review_comments
+FROM anon, authenticated;
+
+COMMIT;

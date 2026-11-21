@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import {
   ActivityEvent,
   BrandAsset,
@@ -61,6 +61,7 @@ import {
   validateViewerName,
   ViewerProfile,
 } from "@/lib/viewer-profile";
+import { DEMO_CONFIG } from "@/lib/demo/config";
 
 interface ToastMessage {
   id: string;
@@ -93,6 +94,8 @@ export interface IdentiqContextValue {
   isPersisted: boolean;
   isSyncing: boolean;
   organisationId: string | null;
+  brandId: string | null;
+  brandName: string | null;
   user: SupabaseUser | null;
   session: SupabaseSession | null;
   userRole: string | null;
@@ -161,8 +164,353 @@ export interface IdentiqContextValue {
   replayGuidedTour: () => void;
 }
 
-const STORAGE_KEY = "identiq_workspace_v2";
-const ORG_STORAGE_KEY = "identiq_org_id";
+export const STORAGE_KEY = "identiq_workspace_v2";
+export const ORG_STORAGE_KEY = "identiq_org_id";
+export const BRAND_STORAGE_KEY = "identiq_brand_id";
+
+export interface BrandLookupResult {
+  id: string;
+  name: string;
+}
+
+export interface BrandTenancyState {
+  organisationId: string | null;
+  brandId: string | null;
+  brandName: string | null;
+  userRole: string | null;
+}
+
+export interface BrandStorageAdapter {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export type SwitchOrgResult =
+  | { success: true; orgId: string; brandId: string; brandName: string }
+  | { success: false; reason: "NOT_A_MEMBER" | "STALE" | "NO_BRAND" | "ERROR"; error?: unknown };
+
+export type ResolveBrandResult =
+  | { success: true; brandId: string; brandName: string }
+  | { success: false; reason: "STALE" | "NO_BRAND" | "ERROR"; error?: unknown };
+
+/**
+ * Production coordinator managing organisation and brand tenant isolation,
+ * request-generation sequence protection against stale asynchronous responses,
+ * and fail-closed review submission rules.
+ */
+export class BrandTenancyManager {
+  private generation = 0;
+  private state: BrandTenancyState;
+  private storage: BrandStorageAdapter;
+  private onStateChange?: (state: BrandTenancyState) => void;
+  private onNotify?: (message: string, tone: "success" | "info" | "error") => void;
+
+  public static readonly ORG_STORAGE_KEY = "identiq_org_id";
+  public static readonly BRAND_STORAGE_KEY = "identiq_brand_id";
+
+  constructor(options: {
+    initialState?: Partial<BrandTenancyState>;
+    storage?: BrandStorageAdapter;
+    onStateChange?: (state: BrandTenancyState) => void;
+    onNotify?: (message: string, tone: "success" | "info" | "error") => void;
+  } = {}) {
+    this.state = {
+      organisationId: options.initialState?.organisationId ?? null,
+      brandId: options.initialState?.brandId ?? null,
+      brandName: options.initialState?.brandName ?? null,
+      userRole: options.initialState?.userRole ?? null,
+    };
+    this.storage =
+      options.storage ??
+      (typeof window !== "undefined" && window.localStorage
+        ? window.localStorage
+        : typeof localStorage !== "undefined"
+        ? localStorage
+        : {
+            getItem: () => null,
+            setItem: () => {},
+            removeItem: () => {},
+          });
+    this.onStateChange = options.onStateChange;
+    this.onNotify = options.onNotify;
+  }
+
+  get organisationId(): string | null {
+    return this.state.organisationId;
+  }
+
+  get brandId(): string | null {
+    return this.state.brandId;
+  }
+
+  get brandName(): string | null {
+    return this.state.brandName;
+  }
+
+  get userRole(): string | null {
+    return this.state.userRole;
+  }
+
+  get currentGeneration(): number {
+    return this.generation;
+  }
+
+  getState(): BrandTenancyState {
+    return { ...this.state };
+  }
+
+  notify(message: string, tone: "success" | "info" | "error" = "info"): void {
+    if (this.onNotify) {
+      this.onNotify(message, tone);
+    }
+  }
+
+  setCallbacks(callbacks: {
+    onStateChange?: (state: BrandTenancyState) => void;
+    onNotify?: (message: string, tone: "success" | "info" | "error") => void;
+  }): void {
+    this.onStateChange = callbacks.onStateChange;
+    this.onNotify = callbacks.onNotify;
+  }
+
+  updateState(patch: Partial<BrandTenancyState>): void {
+    this.state = { ...this.state, ...patch };
+    if (this.onStateChange) {
+      this.onStateChange({ ...this.state });
+    }
+  }
+
+  /**
+   * Immediately invalidates earlier in-flight brand lookups so any delayed
+   * completion or error cannot overwrite the active organisation or brand.
+   */
+  invalidateInFlightRequests(): number {
+    this.generation += 1;
+    return this.generation;
+  }
+
+  /**
+   * Switches organisation with generation tracking.
+   * Invalidates earlier in-flight requests, purges active brand state,
+   * queries the primary brand, and emits "Switched organisation" ONLY if brand lookup succeeds.
+   */
+  async switchOrganisation(params: {
+    targetOrgId: string;
+    userOrganisations: Array<{ organisation_id: string; role: string; name?: string }>;
+    fetchBrand: (orgId: string) => Promise<BrandLookupResult | null>;
+  }): Promise<SwitchOrgResult> {
+    const match = params.userOrganisations.find((o) => o.organisation_id === params.targetOrgId);
+    if (!match) {
+      this.notify("You are not a member of that organisation", "error");
+      return { success: false, reason: "NOT_A_MEMBER" };
+    }
+
+    // 1. Immediately invalidate earlier in-flight requests
+    const requestId = this.invalidateInFlightRequests();
+
+    // 2. Clear old brand state immediately to prevent cross-tenant contamination
+    this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+    this.storage.setItem(BrandTenancyManager.ORG_STORAGE_KEY, params.targetOrgId);
+    this.updateState({
+      organisationId: params.targetOrgId,
+      userRole: match.role,
+      brandId: null,
+      brandName: null,
+    });
+
+    try {
+      const brand = await params.fetchBrand(params.targetOrgId);
+
+      // Check if stale request
+      if (this.generation !== requestId) {
+        return { success: false, reason: "STALE" };
+      }
+
+      if (brand) {
+        this.storage.setItem(BrandTenancyManager.BRAND_STORAGE_KEY, brand.id);
+        this.updateState({
+          brandId: brand.id,
+          brandName: brand.name,
+        });
+        this.notify("Switched organisation", "success");
+        return {
+          success: true,
+          orgId: params.targetOrgId,
+          brandId: brand.id,
+          brandName: brand.name,
+        };
+      } else {
+        // No brand configured: fail closed without emitting success notification
+        this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+        this.updateState({
+          brandId: null,
+          brandName: null,
+        });
+        this.notify("Selected organisation has no configured brand profile", "info");
+        return { success: false, reason: "NO_BRAND" };
+      }
+    } catch (err: unknown) {
+      // Check if stale request
+      if (this.generation !== requestId) {
+        return { success: false, reason: "STALE" };
+      }
+
+      this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+      this.updateState({
+        brandId: null,
+        brandName: null,
+      });
+      this.notify(
+        err instanceof Error ? err.message : "Failed to load organisation brand profile",
+        "error"
+      );
+      return { success: false, reason: "ERROR", error: err };
+    }
+  }
+
+  /**
+   * Asynchronously resolves the primary brand for an organisation during
+   * session restoration, sign-in, or sign-up. Protected by generation counter.
+   */
+  async resolveBrandForOrganisation(params: {
+    orgId: string;
+    fetchBrand: (orgId: string) => Promise<BrandLookupResult | null>;
+  }): Promise<ResolveBrandResult> {
+    const requestId = this.invalidateInFlightRequests();
+
+    try {
+      const brand = await params.fetchBrand(params.orgId);
+
+      if (this.generation !== requestId) {
+        return { success: false, reason: "STALE" };
+      }
+
+      if (brand) {
+        this.storage.setItem(BrandTenancyManager.BRAND_STORAGE_KEY, brand.id);
+        this.updateState({
+          brandId: brand.id,
+          brandName: brand.name,
+        });
+        return { success: true, brandId: brand.id, brandName: brand.name };
+      } else {
+        this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+        this.updateState({
+          brandId: null,
+          brandName: null,
+        });
+        return { success: false, reason: "NO_BRAND" };
+      }
+    } catch (err: unknown) {
+      if (this.generation !== requestId) {
+        return { success: false, reason: "STALE" };
+      }
+
+      this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+      this.updateState({
+        brandId: null,
+        brandName: null,
+      });
+      return { success: false, reason: "ERROR", error: err };
+    }
+  }
+
+  /**
+   * Sets active state when an organisation is newly created via RPC.
+   * Invalidates earlier in-flight requests.
+   */
+  handleOrganisationCreated(params: {
+    organisationId: string;
+    brandId: string;
+    brandName?: string | null;
+    role?: string;
+  }): void {
+    this.invalidateInFlightRequests();
+    this.storage.setItem(BrandTenancyManager.ORG_STORAGE_KEY, params.organisationId);
+    this.storage.setItem(BrandTenancyManager.BRAND_STORAGE_KEY, params.brandId);
+    this.updateState({
+      organisationId: params.organisationId,
+      brandId: params.brandId,
+      brandName: params.brandName ?? null,
+      userRole: params.role ?? "owner",
+    });
+  }
+
+  /**
+   * Checks whether a request generation and target organisation ID are still active.
+   * Protects organisation-scoped asynchronous operations (e.g. data fetching) from
+   * applying state after user switched organisations or a newer request started.
+   */
+  isCurrent(expectedGen: number, expectedOrgId?: string | null): boolean {
+    if (this.generation !== expectedGen) {
+      return false;
+    }
+    if (expectedOrgId !== undefined && this.state.organisationId !== expectedOrgId) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Resets active tenancy and brand state on sign-out or switching to demo mode.
+   * Invalidates earlier in-flight requests.
+   */
+  reset(): void {
+    this.invalidateInFlightRequests();
+    this.storage.removeItem(BrandTenancyManager.ORG_STORAGE_KEY);
+    this.storage.removeItem(BrandTenancyManager.BRAND_STORAGE_KEY);
+    this.updateState({
+      organisationId: null,
+      brandId: null,
+      brandName: null,
+      userRole: null,
+    });
+  }
+
+  /**
+   * Validates tenancy for review submission.
+   * Strictly enforces that authenticated submissions have an active organisation
+   * and resolved brand profile, and never fall back to demo IDs.
+   */
+  validateReviewSubmissionTenancy(params: {
+    persistenceMode: PersistenceMode;
+    explicitBrandId?: string;
+  }): { organisationId: string; brandId: string } {
+    if (params.persistenceMode === "AUTHENTICATED_SUPABASE") {
+      if (!this.state.organisationId) {
+        const errorMsg = "Active organisation is required to submit reviews in authenticated mode.";
+        this.notify(errorMsg, "error");
+        throw new Error(errorMsg);
+      }
+      if (!this.state.brandId) {
+        const errorMsg = "Active brand profile is required to submit reviews in authenticated mode.";
+        this.notify(errorMsg, "error");
+        throw new Error(errorMsg);
+      }
+      if (params.explicitBrandId && params.explicitBrandId !== this.state.brandId) {
+        const errorMsg = "Caller-supplied brand ID does not match the active organisation's brand.";
+        this.notify(errorMsg, "error");
+        throw new Error(errorMsg);
+      }
+      return {
+        organisationId: this.state.organisationId,
+        brandId: this.state.brandId,
+      };
+    }
+
+    if (params.persistenceMode === "SHARED_DEMO") {
+      return {
+        organisationId: DEMO_CONFIG.ORGANISATION_ID,
+        brandId: DEMO_CONFIG.BRAND_ID,
+      };
+    }
+
+    return {
+      organisationId: "local-org",
+      brandId: "local-brand",
+    };
+  }
+}
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
   reviewerName: FALLBACK_VIEWER_NAME,
@@ -193,10 +541,25 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
   // Multi-mode persistence & Auth state
   const [organisationId, setOrganisationId] = useState<string | null>(null);
+  const [brandId, setBrandId] = useState<string | null>(null);
+  const [brandName, setBrandName] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userOrganisations, setUserOrganisations] = useState<UserOrganisationMembership[]>([]);
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>("DEMO_LOCAL");
   const [isSyncing, setIsSyncing] = useState(false);
+  const syncCountRef = useRef(0);
+
+  const startSync = useCallback(() => {
+    syncCountRef.current += 1;
+    setIsSyncing(true);
+  }, []);
+
+  const endSync = useCallback(() => {
+    syncCountRef.current = Math.max(0, syncCountRef.current - 1);
+    if (syncCountRef.current === 0) {
+      setIsSyncing(false);
+    }
+  }, []);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [session, setSession] = useState<SupabaseSession | null>(null);
 
@@ -211,6 +574,22 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
   }, []);
+
+  const [tenancyManager] = useState(() => new BrandTenancyManager());
+
+  useEffect(() => {
+    tenancyManager.setCallbacks({
+      onStateChange: (next) => {
+        setOrganisationId(next.organisationId);
+        setBrandId(next.brandId);
+        setBrandName(next.brandName);
+        setUserRole(next.userRole);
+      },
+      onNotify: (msg, tone) => {
+        notify(msg, tone);
+      },
+    });
+  }, [tenancyManager, notify]);
 
   // Update repository instances when mode changes
   const updatePersistenceStatus = useCallback(
@@ -241,6 +620,31 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     return res.data || [];
   }, []);
 
+  // Fetch primary brand scoped to organisation from PostgREST with RLS
+  const fetchPrimaryBrand = useCallback(
+    async (orgId: string, token?: string): Promise<{ id: string; name: string } | null> => {
+      if (!orgId) return null;
+      const res = await callPostgrest<Array<{ id: string; name: string }>>(
+        `/rest/v1/brands?organisation_id=eq.${encodeURIComponent(orgId)}&select=id,name,approved,created_at&order=approved.desc,created_at.asc&limit=1`,
+        { authToken: token }
+      );
+
+      if (res.error) {
+        throw new Error(res.error.message || `Failed to fetch brand for organisation ${orgId}`);
+      }
+
+      if (!res.data || res.data.length === 0) {
+        return null;
+      }
+
+      return {
+        id: res.data[0].id,
+        name: res.data[0].name,
+      };
+    },
+    []
+  );
+
   // Hydration & initial session + viewer profile restoration
   useEffect(() => {
     let isCancelled = false;
@@ -260,16 +664,15 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         }));
       }
 
+      const reqGen = tenancyManager.currentGeneration;
+
       try {
         const { session: activeSession } = await restoreSession();
 
-        if (activeSession && !isCancelled) {
-          setSession(activeSession);
-          setUser(activeSession.user);
-
+        if (activeSession && !isCancelled && tenancyManager.isCurrent(reqGen)) {
           // Retrieve membership under authenticated session & RLS
           const memberships = await fetchMemberships(activeSession.accessToken);
-          if (isCancelled) return;
+          if (isCancelled || !tenancyManager.isCurrent(reqGen)) return;
           setUserOrganisations(memberships);
 
           const savedOrg = localStorage.getItem(ORG_STORAGE_KEY) || null;
@@ -282,12 +685,33 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
           if (chosenOrg) {
             const role = memberships.find((m) => m.organisation_id === chosenOrg)?.role || null;
-            setOrganisationId(chosenOrg);
-            setUserRole(role);
             localStorage.setItem(ORG_STORAGE_KEY, chosenOrg);
+            tenancyManager.updateState({
+              organisationId: chosenOrg,
+              userRole: role,
+            });
+
+            // Fetch primary brand for active organisation with generation protection
+            const brandResult = await tenancyManager.resolveBrandForOrganisation({
+              orgId: chosenOrg,
+              fetchBrand: (targetOrg) => fetchPrimaryBrand(targetOrg, activeSession.accessToken),
+            });
+
+            // If stale, stop before fetching or applying reviews and activities
+            if (!brandResult.success && brandResult.reason === "STALE") {
+              return;
+            }
+            if (isCancelled || !tenancyManager.isCurrent(tenancyManager.currentGeneration, chosenOrg)) {
+              return;
+            }
+
+            setSession(activeSession);
+            setUser(activeSession.user);
+            setUserOrganisations(memberships);
             updatePersistenceStatus(true, true);
 
             // Fetch initial persisted data
+            const dataGen = tenancyManager.currentGeneration;
             try {
               const supReviewRepo = new SupabaseReviewRepository();
               const supActivityRepo = new SupabaseActivityRepository();
@@ -295,7 +719,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                 supReviewRepo.fetchReviews(chosenOrg),
                 supActivityRepo.fetchActivities(chosenOrg, 100),
               ]);
-              if (!isCancelled) {
+              if (!isCancelled && tenancyManager.isCurrent(dataGen, chosenOrg)) {
                 if (remoteReviews.length > 0) {
                   setReviews(remoteReviews);
                   setActiveReviewId(remoteReviews[0].id);
@@ -309,17 +733,20 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
             }
           } else {
             // Authenticated user with no organisation membership
-            setOrganisationId(null);
-            setUserRole(null);
-            updatePersistenceStatus(true, false);
+            if (!isCancelled && tenancyManager.isCurrent(reqGen)) {
+              setSession(activeSession);
+              setUser(activeSession.user);
+              setUserOrganisations([]);
+              tenancyManager.reset();
+              updatePersistenceStatus(true, false);
+            }
           }
-        } else if (!isCancelled) {
+        } else if (!isCancelled && tenancyManager.isCurrent(reqGen)) {
           // No session or unauthenticated
           setSession(null);
           setUser(null);
-          setOrganisationId(null);
-          setUserRole(null);
           setUserOrganisations([]);
+          tenancyManager.reset();
 
           const demoPref = getDemoModePreference();
           const shouldEnterSharedDemo =
@@ -327,6 +754,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
           if (shouldEnterSharedDemo) {
             updatePersistenceStatus(false, false, true);
+            const demoGen = tenancyManager.currentGeneration;
             try {
               const demoRev = new DemoReviewRepository();
               const demoAct = new DemoActivityRepository();
@@ -334,7 +762,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                 demoRev.fetchReviews(),
                 demoAct.fetchActivities(),
               ]);
-              if (!isCancelled) {
+              if (!isCancelled && tenancyManager.isCurrent(demoGen)) {
                 if (remoteReviews.length > 0) {
                   setReviews(remoteReviews);
                   setActiveReviewId(remoteReviews[0].id);
@@ -349,7 +777,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           } else {
             updatePersistenceStatus(false, false, false);
             const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
+            if (saved && !isCancelled && tenancyManager.isCurrent(reqGen)) {
               const parsed = JSON.parse(saved);
               if (Array.isArray(parsed.reviews) && parsed.reviews.length > 0) {
                 setReviews(parsed.reviews);
@@ -374,7 +802,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch {
-        if (!isCancelled) {
+        if (!isCancelled && tenancyManager.isCurrent(reqGen)) {
           updatePersistenceStatus(false, false);
         }
       } finally {
@@ -392,10 +820,8 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       if (event === "SIGNED_OUT") {
         setSession(null);
         setUser(null);
-        setOrganisationId(null);
-        setUserRole(null);
         setUserOrganisations([]);
-        localStorage.removeItem(ORG_STORAGE_KEY);
+        tenancyManager.reset();
         updatePersistenceStatus(false, false);
       } else if (newSession) {
         setSession(newSession);
@@ -407,7 +833,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       isCancelled = true;
       unsubscribe();
     };
-  }, [fetchMemberships, updatePersistenceStatus]);
+  }, [fetchMemberships, fetchPrimaryBrand, tenancyManager, updatePersistenceStatus]);
 
   // Sync to localStorage in DEMO_LOCAL or CONFIGURED_UNAUTHENTICATED modes
   useEffect(() => {
@@ -452,13 +878,54 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   // Load from Supabase when in AUTHENTICATED_SUPABASE or SHARED_DEMO mode
   const reloadFromPersistence = useCallback(async () => {
     if (persistenceMode !== "AUTHENTICATED_SUPABASE" && persistenceMode !== "SHARED_DEMO") return;
-    setIsSyncing(true);
+    startSync();
+    const reqGen = tenancyManager.currentGeneration;
+    let activeOrg: string | null = tenancyManager.organisationId || organisationId;
     try {
       if (persistenceMode === "SHARED_DEMO") {
         const [remoteReviews, remoteActivities] = await Promise.all([
           reviewRepo.fetchReviews(),
           activityRepo.fetchActivities(),
         ]);
+        if (tenancyManager.isCurrent(reqGen)) {
+          if (remoteReviews.length > 0) {
+            setReviews(remoteReviews);
+            if (!remoteReviews.some((r) => r.id === activeReviewId)) {
+              setActiveReviewId(remoteReviews[0].id);
+            }
+          }
+          if (remoteActivities.length > 0) {
+            setActivities(remoteActivities);
+          }
+          notify("Workspace refreshed", "info");
+        }
+        return;
+      }
+
+      if (!activeOrg) {
+        const memRes = await callPostgrest<{ organisation_id: string }[]>(
+          "/rest/v1/organisation_members?select=organisation_id&limit=1"
+        );
+        if (!tenancyManager.isCurrent(reqGen)) {
+          return;
+        }
+        if (memRes.data && memRes.data.length > 0) {
+          activeOrg = memRes.data[0].organisation_id;
+          setOrganisationId(activeOrg);
+          localStorage.setItem(ORG_STORAGE_KEY, activeOrg);
+          tenancyManager.updateState({ organisationId: activeOrg });
+        }
+      }
+
+      if (!activeOrg || !tenancyManager.isCurrent(reqGen, activeOrg)) {
+        return;
+      }
+
+      const [remoteReviews, remoteActivities] = await Promise.all([
+        reviewRepo.fetchReviews(activeOrg),
+        activityRepo.fetchActivities(activeOrg, 100),
+      ]);
+      if (tenancyManager.isCurrent(reqGen, activeOrg)) {
         if (remoteReviews.length > 0) {
           setReviews(remoteReviews);
           if (!remoteReviews.some((r) => r.id === activeReviewId)) {
@@ -468,74 +935,78 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         if (remoteActivities.length > 0) {
           setActivities(remoteActivities);
         }
-        notify("Workspace refreshed", "info");
-        return;
+        notify("Workspace synced", "info");
       }
-
-      let activeOrg = organisationId;
-      if (!activeOrg) {
-        const memRes = await callPostgrest<{ organisation_id: string }[]>(
-          "/rest/v1/organisation_members?select=organisation_id&limit=1"
-        );
-        if (memRes.data && memRes.data.length > 0) {
-          activeOrg = memRes.data[0].organisation_id;
-          setOrganisationId(activeOrg);
-          localStorage.setItem(ORG_STORAGE_KEY, activeOrg);
-        }
-      }
-
-      if (!activeOrg) {
-        setIsSyncing(false);
-        return;
-      }
-
-      const [remoteReviews, remoteActivities] = await Promise.all([
-        reviewRepo.fetchReviews(activeOrg),
-        activityRepo.fetchActivities(activeOrg, 100),
-      ]);
-      if (remoteReviews.length > 0) {
-        setReviews(remoteReviews);
-        if (!remoteReviews.some((r) => r.id === activeReviewId)) {
-          setActiveReviewId(remoteReviews[0].id);
-        }
-      }
-      if (remoteActivities.length > 0) {
-        setActivities(remoteActivities);
-      }
-      notify("Workspace synced", "info");
     } catch (err: unknown) {
-      notify(err instanceof Error ? err.message : "Failed to refresh workspace", "error");
+      if (tenancyManager.isCurrent(reqGen, activeOrg)) {
+        notify(err instanceof Error ? err.message : "Failed to refresh workspace", "error");
+      }
     } finally {
-      setIsSyncing(false);
+      endSync();
     }
-  }, [persistenceMode, organisationId, reviewRepo, activityRepo, activeReviewId, notify]);
+  }, [persistenceMode, organisationId, tenancyManager, reviewRepo, activityRepo, activeReviewId, notify, startSync, endSync]);
 
   // Auth Operations
   const signIn = useCallback(
     async (email: string, password: string) => {
-      setIsSyncing(true);
+      startSync();
+      const reqGen = tenancyManager.currentGeneration;
       try {
         const res = await signInWithPassword({ email, password });
+        if (!tenancyManager.isCurrent(reqGen)) {
+          return {
+            success: false,
+            error: "Operation was superseded by a newer authentication or organisation change",
+          };
+        }
         if (res.error || !res.data) {
           notify(res.error?.message || "Invalid login credentials", "error");
           return { success: false, error: res.error?.message || "Invalid login credentials" };
         }
 
         const newSession = res.data.session;
-        setSession(newSession);
-        setUser(newSession.user);
-
         const memberships = await fetchMemberships(newSession.accessToken);
-        setUserOrganisations(memberships);
+        if (!tenancyManager.isCurrent(reqGen)) {
+          return {
+            success: false,
+            error: "Operation was superseded by a newer authentication or organisation change",
+          };
+        }
 
         if (memberships.length > 0) {
           const activeOrg = memberships[0].organisation_id;
           const activeRole = memberships[0].role;
-          setOrganisationId(activeOrg);
-          setUserRole(activeRole);
           localStorage.setItem(ORG_STORAGE_KEY, activeOrg);
+          tenancyManager.updateState({
+            organisationId: activeOrg,
+            userRole: activeRole,
+          });
+
+          const brandResult = await tenancyManager.resolveBrandForOrganisation({
+            orgId: activeOrg,
+            fetchBrand: (targetOrg) => fetchPrimaryBrand(targetOrg, newSession.accessToken),
+          });
+
+          // If stale, stop that flow before fetching or applying reviews and activities
+          if (!brandResult.success && brandResult.reason === "STALE") {
+            return {
+              success: false,
+              error: "Operation was superseded by a newer authentication or organisation change",
+            };
+          }
+          if (!tenancyManager.isCurrent(tenancyManager.currentGeneration, activeOrg)) {
+            return {
+              success: false,
+              error: "Operation was superseded by a newer authentication or organisation change",
+            };
+          }
+
+          setSession(newSession);
+          setUser(newSession.user);
+          setUserOrganisations(memberships);
           updatePersistenceStatus(true, true);
 
+          const dataGen = tenancyManager.currentGeneration;
           try {
             const supReviewRepo = new SupabaseReviewRepository();
             const supActivityRepo = new SupabaseActivityRepository();
@@ -543,20 +1014,26 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
               supReviewRepo.fetchReviews(activeOrg),
               supActivityRepo.fetchActivities(activeOrg, 100),
             ]);
-            if (remoteReviews.length > 0) {
-              setReviews(remoteReviews);
-              setActiveReviewId(remoteReviews[0].id);
-            }
-            if (remoteActivities.length > 0) {
-              setActivities(remoteActivities);
+            if (tenancyManager.isCurrent(dataGen, activeOrg)) {
+              if (remoteReviews.length > 0) {
+                setReviews(remoteReviews);
+                setActiveReviewId(remoteReviews[0].id);
+              }
+              if (remoteActivities.length > 0) {
+                setActivities(remoteActivities);
+              }
             }
           } catch {
             // Ignore fetch failure
           }
-          notify(`Signed in as ${newSession.user.email} (${activeRole})`);
+          if (tenancyManager.isCurrent(dataGen, activeOrg)) {
+            notify(`Signed in as ${newSession.user.email} (${activeRole})`);
+          }
         } else {
-          setOrganisationId(null);
-          setUserRole(null);
+          setSession(newSession);
+          setUser(newSession.user);
+          setUserOrganisations([]);
+          tenancyManager.reset();
           updatePersistenceStatus(true, false);
           notify(
             `Signed in as ${newSession.user.email}. Create an organisation to persist reviews.`,
@@ -565,21 +1042,34 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         }
         return { success: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Sign in failed";
-        notify(msg, "error");
-        return { success: false, error: msg };
+        if (tenancyManager.isCurrent(reqGen)) {
+          const msg = err instanceof Error ? err.message : "Sign in failed";
+          notify(msg, "error");
+          return { success: false, error: msg };
+        }
+        return {
+          success: false,
+          error: "Operation was superseded by a newer authentication or organisation change",
+        };
       } finally {
-        setIsSyncing(false);
+        endSync();
       }
     },
-    [fetchMemberships, notify, updatePersistenceStatus]
+    [fetchMemberships, fetchPrimaryBrand, tenancyManager, notify, updatePersistenceStatus, startSync, endSync]
   );
 
   const signUp = useCallback(
     async (email: string, password: string, metadata?: Record<string, unknown>) => {
-      setIsSyncing(true);
+      startSync();
+      const reqGen = tenancyManager.currentGeneration;
       try {
         const res = await authSignUp({ email, password, metadata });
+        if (!tenancyManager.isCurrent(reqGen)) {
+          return {
+            success: false,
+            error: "Operation was superseded by a newer authentication or organisation change",
+          };
+        }
         if (res.error || !res.data) {
           notify(res.error?.message || "Sign up failed", "error");
           return { success: false, error: res.error?.message || "Sign up failed" };
@@ -587,56 +1077,118 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
         if (res.data.session) {
           const newSession = res.data.session;
-          setSession(newSession);
-          setUser(newSession.user);
           const memberships = await fetchMemberships(newSession.accessToken);
-          setUserOrganisations(memberships);
+          if (!tenancyManager.isCurrent(reqGen)) {
+            return {
+              success: false,
+              error: "Operation was superseded by a newer authentication or organisation change",
+            };
+          }
 
           if (memberships.length > 0) {
             const activeOrg = memberships[0].organisation_id;
-            setOrganisationId(activeOrg);
-            setUserRole(memberships[0].role);
+            const activeRole = memberships[0].role;
             localStorage.setItem(ORG_STORAGE_KEY, activeOrg);
+            tenancyManager.updateState({
+              organisationId: activeOrg,
+              userRole: activeRole,
+            });
+
+            const brandResult = await tenancyManager.resolveBrandForOrganisation({
+              orgId: activeOrg,
+              fetchBrand: (targetOrg) => fetchPrimaryBrand(targetOrg, newSession.accessToken),
+            });
+
+            // If stale, stop that flow before fetching or applying reviews and activities
+            if (!brandResult.success && brandResult.reason === "STALE") {
+              return {
+                success: false,
+                error: "Operation was superseded by a newer authentication or organisation change",
+              };
+            }
+            if (!tenancyManager.isCurrent(tenancyManager.currentGeneration, activeOrg)) {
+              return {
+                success: false,
+                error: "Operation was superseded by a newer authentication or organisation change",
+              };
+            }
+
+            setSession(newSession);
+            setUser(newSession.user);
+            setUserOrganisations(memberships);
             updatePersistenceStatus(true, true);
+
+            const dataGen = tenancyManager.currentGeneration;
+            try {
+              const supReviewRepo = new SupabaseReviewRepository();
+              const supActivityRepo = new SupabaseActivityRepository();
+              const [remoteReviews, remoteActivities] = await Promise.all([
+                supReviewRepo.fetchReviews(activeOrg),
+                supActivityRepo.fetchActivities(activeOrg, 100),
+              ]);
+              if (tenancyManager.isCurrent(dataGen, activeOrg)) {
+                if (remoteReviews.length > 0) {
+                  setReviews(remoteReviews);
+                  setActiveReviewId(remoteReviews[0].id);
+                }
+                if (remoteActivities.length > 0) {
+                  setActivities(remoteActivities);
+                }
+              }
+            } catch {
+              // Ignore fetch failure
+            }
+
+            if (tenancyManager.isCurrent(dataGen, activeOrg)) {
+              notify(`Account created and signed in as ${res.data.user?.email}`);
+            }
           } else {
-            setOrganisationId(null);
-            setUserRole(null);
+            setSession(newSession);
+            setUser(newSession.user);
+            setUserOrganisations([]);
+            tenancyManager.reset();
             updatePersistenceStatus(true, false);
+            notify(`Account created and signed in as ${res.data.user?.email}`);
           }
-          notify(`Account created and signed in as ${res.data.user?.email}`);
         } else {
-          notify("Account created. Please check your email to verify.", "info");
+          if (tenancyManager.isCurrent(reqGen)) {
+            notify("Account created. Please check your email to verify.", "info");
+          }
         }
         return { success: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Sign up failed";
-        notify(msg, "error");
-        return { success: false, error: msg };
+        if (tenancyManager.isCurrent(reqGen)) {
+          const msg = err instanceof Error ? err.message : "Sign up failed";
+          notify(msg, "error");
+          return { success: false, error: msg };
+        }
+        return {
+          success: false,
+          error: "Operation was superseded by a newer authentication or organisation change",
+        };
       } finally {
-        setIsSyncing(false);
+        endSync();
       }
     },
-    [fetchMemberships, notify, updatePersistenceStatus]
+    [fetchMemberships, fetchPrimaryBrand, tenancyManager, notify, updatePersistenceStatus, startSync, endSync]
   );
 
   const signOut = useCallback(async () => {
-    setIsSyncing(true);
+    startSync();
     try {
       await authSignOut();
       setUser(null);
       setSession(null);
-      setOrganisationId(null);
-      setUserRole(null);
       setUserOrganisations([]);
-      localStorage.removeItem(ORG_STORAGE_KEY);
+      tenancyManager.reset();
       updatePersistenceStatus(false, false);
       notify("Signed out", "info");
     } catch (err) {
       notify(err instanceof Error ? err.message : "Error during sign out", "error");
     } finally {
-      setIsSyncing(false);
+      endSync();
     }
-  }, [notify, updatePersistenceStatus]);
+  }, [tenancyManager, notify, updatePersistenceStatus, startSync, endSync]);
 
   const createOrganisation = useCallback(
     async (name: string) => {
@@ -651,9 +1203,14 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: "Authentication required" };
       }
 
-      setIsSyncing(true);
+      startSync();
       try {
-        const res = await callPostgrest<{ organisation_id: string; name: string; role: string }>(
+        const res = await callPostgrest<{
+          organisation_id: string;
+          brand_id: string;
+          name: string;
+          role: string;
+        }>(
           "/rest/v1/rpc/create_organisation_and_owner",
           {
             method: "POST",
@@ -669,10 +1226,23 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         }
 
         const newOrgId = res.data.organisation_id;
+        const newBrandId = res.data.brand_id;
         const newRole = res.data.role;
-        setOrganisationId(newOrgId);
-        setUserRole(newRole);
-        localStorage.setItem(ORG_STORAGE_KEY, newOrgId);
+
+        if (!newOrgId || !newBrandId) {
+          const msg =
+            "Organisation creation returned an incomplete response (missing organisation_id or brand_id)";
+          notify(msg, "error");
+          return { success: false, error: msg };
+        }
+
+        tenancyManager.handleOrganisationCreated({
+          organisationId: newOrgId,
+          brandId: newBrandId,
+          brandName: res.data.name,
+          role: newRole,
+        });
+
         setUserOrganisations((prev) => [
           ...prev,
           { organisation_id: newOrgId, role: newRole, name: res.data?.name },
@@ -685,29 +1255,31 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         notify(msg, "error");
         return { success: false, error: msg };
       } finally {
-        setIsSyncing(false);
+        endSync();
       }
     },
-    [session, notify, updatePersistenceStatus]
+    [session, tenancyManager, notify, updatePersistenceStatus, startSync, endSync]
   );
 
   const switchOrganisation = useCallback(
     async (orgId: string) => {
-      const match = userOrganisations.find((o) => o.organisation_id === orgId);
-      if (!match) {
-        notify("You are not a member of that organisation", "error");
-        return;
+      const token = session?.accessToken || getClientAuthToken();
+      const result = await tenancyManager.switchOrganisation({
+        targetOrgId: orgId,
+        userOrganisations,
+        fetchBrand: (targetOrg) => fetchPrimaryBrand(targetOrg, token || undefined),
+      });
+
+      if (result.success) {
+        updatePersistenceStatus(true, true);
+        setTimeout(() => {
+          reloadFromPersistence();
+        }, 50);
+      } else if (result.reason !== "STALE" && result.reason !== "NOT_A_MEMBER") {
+        updatePersistenceStatus(true, true);
       }
-      setOrganisationId(orgId);
-      setUserRole(match.role);
-      localStorage.setItem(ORG_STORAGE_KEY, orgId);
-      updatePersistenceStatus(true, true);
-      notify(`Switched organisation`);
-      setTimeout(() => {
-        reloadFromPersistence();
-      }, 50);
     },
-    [userOrganisations, notify, updatePersistenceStatus, reloadFromPersistence]
+    [userOrganisations, session, tenancyManager, fetchPrimaryBrand, updatePersistenceStatus, reloadFromPersistence]
   );
 
   // Set Auth and Tenancy context
@@ -716,13 +1288,14 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       setClientAuthToken(token);
       if (orgId) {
         localStorage.setItem(ORG_STORAGE_KEY, orgId);
+        tenancyManager.updateState({ organisationId: orgId });
       } else {
-        localStorage.removeItem(ORG_STORAGE_KEY);
+        tenancyManager.reset();
       }
       setOrganisationId(orgId);
       updatePersistenceStatus(Boolean(token), Boolean(orgId));
     },
-    [updatePersistenceStatus]
+    [tenancyManager, updatePersistenceStatus]
   );
 
   const logActivity = (event: Omit<ActivityEvent, "id" | "timestamp">) => {
@@ -746,7 +1319,13 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   };
 
   // 1. Submit Review (RPC 1)
-  const addReview = async (review: ReviewSubmission, brandId?: string) => {
+  const addReview = async (review: ReviewSubmission, explicitBrandId?: string) => {
+    const { organisationId: targetOrgId, brandId: targetBrandId } =
+      tenancyManager.validateReviewSubmissionTenancy({
+        persistenceMode,
+        explicitBrandId,
+      });
+
     const prevReviews = reviews;
     const prevActivities = activities;
 
@@ -765,8 +1344,8 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       try {
         await reviewRepo.submitReview({
           review,
-          organisationId: organisationId || "e0000000-0000-0000-0000-000000000001",
-          brandId: brandId || "b0000000-0000-0000-0000-000000000001",
+          organisationId: targetOrgId,
+          brandId: targetBrandId,
         });
         notify(`"${review.title}" submitted for review`);
       } catch (err: unknown) {
@@ -774,6 +1353,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         setReviews(prevReviews);
         setActivities(prevActivities);
         notify(err instanceof Error ? err.message : "Failed to save review submission", "error");
+        throw err;
       }
     } else {
       notify("Review added to workspace");
@@ -1348,7 +1928,7 @@ const prevActivities = activities;
       authUser: user,
     });
     if (persistenceMode === "SHARED_DEMO") {
-      setIsSyncing(true);
+      startSync();
       try {
         const res = await fetch("/api/demo/reset", { method: "POST" });
         if (!res.ok) {
@@ -1370,7 +1950,7 @@ const prevActivities = activities;
       } catch (err) {
         notify(err instanceof Error ? err.message : "Failed to reset sample data", "error");
       } finally {
-        setIsSyncing(false);
+        endSync();
       }
     } else {
       localStorage.removeItem(STORAGE_KEY);
@@ -1390,8 +1970,9 @@ const prevActivities = activities;
 
   const enterSharedDemoMode = useCallback(async () => {
     setDemoModePreference("shared");
+    tenancyManager.reset();
     updatePersistenceStatus(false, false, true);
-    setIsSyncing(true);
+    startSync();
     try {
       const demoRev = new DemoReviewRepository();
       const demoAct = new DemoActivityRepository();
@@ -1412,17 +1993,18 @@ const prevActivities = activities;
     } catch (err) {
       notify(err instanceof Error ? err.message : "Loaded demo workspace", "info");
     } finally {
-      setIsSyncing(false);
+      endSync();
     }
-  }, [notify, updatePersistenceStatus]);
+  }, [tenancyManager, notify, updatePersistenceStatus, startSync, endSync]);
 
   const enterLocalDemoMode = useCallback(() => {
     setDemoModePreference("local");
+    tenancyManager.reset();
     updatePersistenceStatus(false, false, false);
     setReviewRepo(new LocalReviewRepository(INITIAL_REVIEWS));
     setActivityRepo(new LocalActivityRepository(INITIAL_ACTIVITY));
     notify("Switched to local workspace", "info");
-  }, [notify, updatePersistenceStatus]);
+  }, [tenancyManager, notify, updatePersistenceStatus]);
 
   const completeOnboarding = useCallback(
     (input: {
@@ -1535,6 +2117,8 @@ const prevActivities = activities;
         isPersisted: persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO",
         isSyncing,
         organisationId,
+        brandId,
+        brandName,
         user,
         session,
         userRole,
