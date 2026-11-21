@@ -55,6 +55,131 @@ async function recomputeDemoReviewScore(reviewId: string): Promise<number> {
   return newScore;
 }
 
+async function recomputeDemoReviewScoreChecked(reviewId: string): Promise<number> {
+  const reviewRes = await callServerPostgrest<Array<{ base_score: number }>>(
+    `/rest/v1/reviews?id=eq.${encodeURIComponent(reviewId)}` +
+      `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}&select=base_score`,
+    { useServiceRole: true }
+  );
+
+  if (reviewRes.error) {
+    throw new Error("Unable to load the review base score.");
+  }
+  if (!Array.isArray(reviewRes.data) || reviewRes.data.length !== 1) {
+    throw new Error("The review was not found.");
+  }
+
+  const baseScore = reviewRes.data[0].base_score;
+  if (typeof baseScore !== "number" || !Number.isFinite(baseScore)) {
+    throw new Error("The review base score is unavailable.");
+  }
+
+  const findingsRes = await callServerPostgrest<Array<{ severity: string; resolved: boolean }>>(
+    `/rest/v1/review_findings?review_id=eq.${encodeURIComponent(reviewId)}&select=severity,resolved`,
+    { useServiceRole: true }
+  );
+
+  if (findingsRes.error) {
+    throw new Error("Unable to load findings for score recomputation.");
+  }
+  if (!Array.isArray(findingsRes.data)) {
+    throw new Error("Findings could not be loaded for score recomputation.");
+  }
+
+  let newScore = 100;
+  if (findingsRes.data.length > 0) {
+    let penalty = 0;
+    for (const finding of findingsRes.data) {
+      if (!finding.resolved) {
+        if (finding.severity === "high") penalty += 12;
+        else if (finding.severity === "medium") penalty += 6;
+        else penalty += 3;
+      }
+    }
+
+    const rawComputed = 98 - penalty;
+    newScore = Math.max(40, Math.min(99, Math.max(baseScore, rawComputed)));
+  }
+
+  const scoreUpdate = await callServerPostgrest<Array<{ id: string }>>(
+    `/rest/v1/reviews?id=eq.${encodeURIComponent(reviewId)}` +
+      `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}`,
+    {
+      method: "PATCH",
+      useServiceRole: true,
+      body: { compliance_score: newScore, updated_at: new Date().toISOString() },
+    }
+  );
+
+  if (scoreUpdate.error) {
+    throw new Error("Unable to persist the recomputed compliance score.");
+  }
+  if (!Array.isArray(scoreUpdate.data) || scoreUpdate.data.length !== 1) {
+    throw new Error("The review score update did not affect exactly one row.");
+  }
+
+  return newScore;
+}
+
+async function rollbackDemoCorrection(params: {
+  reviewId: string;
+  findingId: string;
+  originalReviewText: string;
+  originalScore: number;
+  originalReviewUpdatedAt: string | null;
+  originalFinding: {
+    edited_correction: string | null;
+    resolved: boolean;
+    resolved_at: string | null;
+    resolved_by: string | null;
+    updated_at: string | null;
+  };
+}): Promise<string[]> {
+  const failures: string[] = [];
+
+  const reviewRollback = await callServerPostgrest<Array<{ id: string }>>(
+    `/rest/v1/reviews?id=eq.${encodeURIComponent(params.reviewId)}` +
+      `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}`,
+    {
+      method: "PATCH",
+      useServiceRole: true,
+      body: {
+        text_content: params.originalReviewText,
+        compliance_score: params.originalScore,
+        updated_at: params.originalReviewUpdatedAt,
+      },
+    }
+  );
+
+  if (
+    reviewRollback.error ||
+    !Array.isArray(reviewRollback.data) ||
+    reviewRollback.data.length !== 1
+  ) {
+    failures.push("review");
+  }
+
+  const findingRollback = await callServerPostgrest<Array<{ id: string }>>(
+    `/rest/v1/review_findings?id=eq.${encodeURIComponent(params.findingId)}` +
+      `&review_id=eq.${encodeURIComponent(params.reviewId)}`,
+    {
+      method: "PATCH",
+      useServiceRole: true,
+      body: params.originalFinding,
+    }
+  );
+
+  if (
+    findingRollback.error ||
+    !Array.isArray(findingRollback.data) ||
+    findingRollback.data.length !== 1
+  ) {
+    failures.push("finding");
+  }
+
+  return failures;
+}
+
 export async function POST(req: NextRequest) {
   const clientIp = getClientIp(req);
   const rate = checkDemoRateLimit(clientIp, "mutation");
@@ -287,40 +412,260 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        await callServerPostgrest(`/rest/v1/review_findings?id=eq.${findingId}&review_id=eq.${reviewId}`, {
-          method: "PATCH",
-          useServiceRole: true,
-          body: {
-            edited_correction: editedText,
-            resolved: true,
-            resolved_at: new Date().toISOString(),
-            resolved_by: actorName,
-            updated_at: new Date().toISOString(),
-          },
-        });
+        const findingResult = await callServerPostgrest<
+          Array<{
+            affected_content: string;
+            edited_correction: string | null;
+            resolved: boolean;
+            resolved_at: string | null;
+            resolved_by: string | null;
+            updated_at: string | null;
+          }>
+        >(
+          `/rest/v1/review_findings?id=eq.${encodeURIComponent(findingId)}` +
+            `&review_id=eq.${encodeURIComponent(reviewId)}` +
+            `&select=affected_content,edited_correction,resolved,resolved_at,resolved_by,updated_at`,
+          { useServiceRole: true }
+        );
 
-        const newScore = await recomputeDemoReviewScore(reviewId);
+        if (findingResult.error) {
+          return NextResponse.json(
+            { error: "PERSISTENCE_ERROR", message: "Unable to load the finding. Please retry." },
+            { status: 502 }
+          );
+        }
+        if (!Array.isArray(findingResult.data) || findingResult.data.length !== 1) {
+          return NextResponse.json(
+            { error: "NOT_FOUND", message: "The finding was not found in this review." },
+            { status: 404 }
+          );
+        }
 
-        // Log activity
-        await callServerPostgrest("/rest/v1/activity_events", {
-          method: "POST",
-          useServiceRole: true,
-          body: {
-            id: `demo-act-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            organisation_id: DEMO_CONFIG.ORGANISATION_ID,
-            review_id: reviewId,
-            actor: actorName,
-            action: "applied text correction to finding in",
-            target: reviewTitle,
-            type: "correction_applied",
-            timestamp: new Date().toISOString(),
-          },
-        });
+        const affectedText = String(findingResult.data[0].affected_content || "");
+        if (!affectedText.trim()) {
+          return NextResponse.json(
+            { error: "VALIDATION_ERROR", message: "The finding has no affected text." },
+            { status: 409 }
+          );
+        }
+
+        const reviewResult = await callServerPostgrest<
+          Array<{
+            text_content: string;
+            compliance_score: number;
+            updated_at: string | null;
+          }>
+        >(
+          `/rest/v1/reviews?id=eq.${encodeURIComponent(reviewId)}` +
+            `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}` +
+            `&select=text_content,compliance_score,updated_at`,
+          { useServiceRole: true }
+        );
+
+        if (reviewResult.error) {
+          return NextResponse.json(
+            { error: "PERSISTENCE_ERROR", message: "Unable to load the review. Please retry." },
+            { status: 502 }
+          );
+        }
+        if (!Array.isArray(reviewResult.data) || reviewResult.data.length !== 1) {
+          return NextResponse.json(
+            { error: "NOT_FOUND", message: "The review was not found." },
+            { status: 404 }
+          );
+        }
+
+        const currentReview = reviewResult.data[0];
+        if (typeof currentReview.text_content !== "string") {
+          return NextResponse.json(
+            { error: "INVALID_REVIEW", message: "The review text is unavailable." },
+            { status: 409 }
+          );
+        }
+        if (
+          typeof currentReview.compliance_score !== "number" ||
+          !Number.isFinite(currentReview.compliance_score)
+        ) {
+          return NextResponse.json(
+            { error: "INVALID_REVIEW", message: "The review score is unavailable." },
+            { status: 409 }
+          );
+        }
+
+        const firstMatch = currentReview.text_content.indexOf(affectedText);
+        if (firstMatch === -1) {
+          return NextResponse.json(
+            { error: "CONTENT_NOT_FOUND", message: "The affected text is no longer present in the review." },
+            { status: 409 }
+          );
+        }
+        if (currentReview.text_content.indexOf(affectedText, firstMatch + 1) !== -1) {
+          return NextResponse.json(
+            { error: "AMBIGUOUS_CONTENT", message: "The affected text appears more than once." },
+            { status: 409 }
+          );
+        }
+
+        const updatedText =
+          currentReview.text_content.slice(0, firstMatch) +
+          editedText +
+          currentReview.text_content.slice(firstMatch + affectedText.length);
+
+        const originalFinding = {
+          edited_correction: findingResult.data[0].edited_correction,
+          resolved: findingResult.data[0].resolved,
+          resolved_at: findingResult.data[0].resolved_at,
+          resolved_by: findingResult.data[0].resolved_by,
+          updated_at: findingResult.data[0].updated_at,
+        };
+        const rollbackParams = {
+          reviewId,
+          findingId,
+          originalReviewText: currentReview.text_content,
+          originalScore: currentReview.compliance_score,
+          originalReviewUpdatedAt: currentReview.updated_at,
+          originalFinding,
+        };
+
+        const reviewUpdate = await callServerPostgrest<Array<{ id: string }>>(
+          `/rest/v1/reviews?id=eq.${encodeURIComponent(reviewId)}` +
+            `&organisation_id=eq.${DEMO_CONFIG.ORGANISATION_ID}`,
+          {
+            method: "PATCH",
+            useServiceRole: true,
+            body: {
+              text_content: updatedText,
+              updated_at: new Date().toISOString(),
+            },
+          }
+        );
+
+        if (reviewUpdate.error) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "PERSISTENCE_ERROR",
+              message: "Unable to update the review text. Please retry.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 502 }
+          );
+        }
+        if (!Array.isArray(reviewUpdate.data) || reviewUpdate.data.length !== 1) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "NOT_FOUND",
+              message: "The review was not found.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 404 }
+          );
+        }
+
+        const resolvedAt = new Date().toISOString();
+        const findingUpdate = await callServerPostgrest<Array<{ id: string }>>(
+          `/rest/v1/review_findings?id=eq.${encodeURIComponent(findingId)}` +
+            `&review_id=eq.${encodeURIComponent(reviewId)}`,
+          {
+            method: "PATCH",
+            useServiceRole: true,
+            body: {
+              edited_correction: editedText,
+              resolved: true,
+              resolved_at: resolvedAt,
+              resolved_by: actorName,
+              updated_at: resolvedAt,
+            },
+          }
+        );
+
+        if (findingUpdate.error) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "PERSISTENCE_ERROR",
+              message: "Unable to resolve the finding. Please retry.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 502 }
+          );
+        }
+        if (!Array.isArray(findingUpdate.data) || findingUpdate.data.length !== 1) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "NOT_FOUND",
+              message: "The finding was not found in this review.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 404 }
+          );
+        }
+
+        let newScore: number;
+        try {
+          newScore = await recomputeDemoReviewScoreChecked(reviewId);
+        } catch (error) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "PERSISTENCE_ERROR",
+              message: error instanceof Error ? error.message : "Unable to recompute the compliance score.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 502 }
+          );
+        }
+
+        const activityUpdate = await callServerPostgrest<Array<{ id: string }>>(
+          "/rest/v1/activity_events",
+          {
+            method: "POST",
+            useServiceRole: true,
+            body: {
+              id: `demo-act-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+              organisation_id: DEMO_CONFIG.ORGANISATION_ID,
+              review_id: reviewId,
+              actor: actorName,
+              action: "applied text correction to finding in",
+              target: reviewTitle,
+              type: "correction_applied",
+              timestamp: new Date().toISOString(),
+            },
+          }
+        );
+
+        if (activityUpdate.error) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "PERSISTENCE_ERROR",
+              message: "The correction was saved but activity logging failed.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 502 }
+          );
+        }
+        if (!Array.isArray(activityUpdate.data) || activityUpdate.data.length !== 1) {
+          const rollbackFailures = await rollbackDemoCorrection(rollbackParams);
+          return NextResponse.json(
+            {
+              error: "PERSISTENCE_ERROR",
+              message: "The activity event was not created.",
+              rollbackFailed: rollbackFailures,
+            },
+            { status: 502 }
+          );
+        }
 
         return NextResponse.json({
           success: true,
           reviewId,
           findingId,
+          appliedToCopy: true,
+          updatedText,
+          textContent: updatedText,
           complianceScore: newScore,
         });
       }
