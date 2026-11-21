@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { callServerPostgrest } from "../supabase/server";
-import { buildBrandKnowledgeRecordFromEntries } from "./knowledge-mapper";
+import {
+  buildBrandKnowledgeRecordFromEntries,
+  buildTeraluneSampleSeed,
+} from "./knowledge-mapper";
+import { DEMO_CONFIG } from "../demo/config";
 import {
   BrandKnowledgeRepositoryError,
   CrossTenantBrandAccessError,
@@ -368,6 +372,14 @@ export class SupabaseBrandKnowledgeRepository
         updatedAt: String(row.created_at || new Date().toISOString()),
       });
     }
+
+    if (
+      (!organisationId || organisationId === DEMO_CONFIG.ORGANISATION_ID) &&
+      !mapped.some((b) => b.brandId === teraluneKnowledge.profile.brandId)
+    ) {
+      mapped.push(buildTeraluneSampleSeed().brand);
+    }
+
     return mapped;
   }
 
@@ -376,19 +388,7 @@ export class SupabaseBrandKnowledgeRepository
     organisationId?: string,
   ): Promise<WorkspaceBrandRecord | null> {
     if (brandId === teraluneKnowledge.profile.brandId) {
-      return {
-        brandId,
-        organisationId: teraluneKnowledge.profile.organisationId,
-        brandName: "Teralune (Demo Sample)",
-        description: teraluneKnowledge.profile.profile,
-        approved: true,
-        isSample: true,
-        latestPublishedVersion: "1.0",
-        publishedEntryCount: 1,
-        draftEntryCount: 0,
-        archivedEntryCount: 0,
-        updatedAt: "2026-11-01T00:00:00.000Z",
-      };
+      return buildTeraluneSampleSeed().brand;
     }
 
     const row = await this.fetchBrandRow(brandId);
@@ -476,6 +476,14 @@ export class SupabaseBrandKnowledgeRepository
     organisationId?: string;
     status?: PublicationStatus | "all";
   }): Promise<ManagedKnowledgeEntry[]> {
+    if (query.brandId === teraluneKnowledge.profile.brandId) {
+      const seedEntries = buildTeraluneSampleSeed().entries;
+      if (!query.status || query.status === "all") {
+        return seedEntries;
+      }
+      return seedEntries.filter((e) => e.publicationStatus === query.status);
+    }
+
     const brandRow = await this.fetchBrandRow(query.brandId);
     if (!brandRow) return [];
     const orgId = String(brandRow.organisation_id);
@@ -956,6 +964,23 @@ export class SupabaseBrandKnowledgeRepository
     brandId: string,
     organisationId?: string,
   ): Promise<BrandVersionSnapshot[]> {
+    if (brandId === teraluneKnowledge.profile.brandId) {
+      const seed = buildTeraluneSampleSeed();
+      return [
+        {
+          snapshotId: "snap-teralune-v1",
+          brandId: seed.brand.brandId,
+          organisationId: seed.brand.organisationId,
+          versionId: "1.0",
+          versionNumber: 1,
+          publishedAt: "2026-11-01T00:00:00.000Z",
+          publishedBy: "Teralune Governance Fixture",
+          note: "Initial sample guideline fixture",
+          entries: seed.entries,
+        },
+      ];
+    }
+
     const brandRow = await this.fetchBrandRow(brandId);
     if (!brandRow) return [];
     const orgId = String(brandRow.organisation_id);

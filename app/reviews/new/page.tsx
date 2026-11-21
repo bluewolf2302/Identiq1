@@ -7,11 +7,13 @@ import {
   AlertCircle,
   BookOpen,
   CheckCircle2,
+  ExternalLink,
   FileText,
   History,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -36,7 +38,14 @@ import {
   PastelTheme,
   ReviewSubmission,
 } from "@/lib/types";
-import { compareReviewFindingPayloads } from "@/lib/analysis/comparison";
+import {
+  buildCleanResetBeforeSampleLoad,
+  TERALUNE_DEMO_BRAND_ID,
+  TERALUNE_GUIDELINES_PDF_URL,
+  TERALUNE_REVIEW_SAMPLE_CARDS,
+  type DemoReadinessCheckResult,
+  type TeraluneReviewSampleCard,
+} from "@/lib/demo/teralune-demo-fixtures";
 
 const CONTENT_TYPES: ContentType[] = [
   "Campaign Copy",
@@ -104,11 +113,10 @@ function NewReviewContent() {
     knowledgeLoading,
     selectBrand,
     selectBrandVersion,
-    reviews,
-    session,
     addReview,
     viewerProfile,
     user,
+    session,
     notify,
     organisationId,
     brandId,
@@ -138,7 +146,31 @@ function NewReviewContent() {
   const [fileError, setFileError] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [stage, setStage] = useState<SubmissionStage>("idle");
-  const [isLoadingSample, setIsLoadingSample] = useState(false);
+  const [loadingSampleKey, setLoadingSampleKey] = useState<"compliant" | "risky" | null>(
+    null,
+  );
+  const [activeSampleCard, setActiveSampleCard] =
+    useState<TeraluneReviewSampleCard | null>(null);
+  const [demoReadiness, setDemoReadiness] = useState<DemoReadinessCheckResult | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/demo/readiness", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<DemoReadinessCheckResult>) : null))
+      .then((data) => {
+        if (!cancelled && data) {
+          setDemoReadiness(data);
+        }
+      })
+      .catch(() => {
+        // Non-blocking readiness check
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Sync deep-linked ?brandId= with IdentiqProvider once brands are hydrated
   useEffect(() => {
@@ -183,6 +215,7 @@ function NewReviewContent() {
     setAssetBase64(undefined);
     setAssetMimeType(undefined);
     setPdfEstimatedPages(undefined);
+    setActiveSampleCard(null);
     setFileError("");
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -193,6 +226,7 @@ function NewReviewContent() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setActiveSampleCard(null);
     setFileError("");
     setErrorMessage("");
 
@@ -263,14 +297,34 @@ function NewReviewContent() {
     reader.readAsDataURL(file);
   };
 
-  const loadTeraluneSamplePdf = async () => {
-    setIsLoadingSample(true);
-    setFileError("");
-    setErrorMessage("");
+  const loadTeraluneSamplePdf = async (card: TeraluneReviewSampleCard) => {
+    if (loadingSampleKey || isSubmitting) return;
+    setLoadingSampleKey(card.key);
+
+    // Reset previous file, manual copy, errors, and stale sample state before loading
+    const clean = buildCleanResetBeforeSampleLoad(card);
+    setTitle(clean.title);
+    setContentType(clean.contentType);
+    setTextContent(clean.textContent);
+    setErrorMessage(clean.errorMessage);
+    setFileError(clean.fileError);
+    setAssetName(clean.assetName);
+    setAssetSizeBytes(clean.assetSizeBytes);
+    setAssetPreviewUrl(clean.assetPreviewUrl);
+    setAssetBase64(clean.assetBase64);
+    setAssetMimeType(clean.assetMimeType);
+    setPdfEstimatedPages(clean.pdfEstimatedPages);
+    setActiveSampleCard(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
     try {
-      const res = await fetch("/api/samples/teralune-ad");
+      const res = await fetch(
+        `/api/samples/teralune-ad?sample=${encodeURIComponent(card.key)}`,
+      );
       if (!res.ok) {
-        throw new Error("Could not load Teralune sample advertisement PDF.");
+        throw new Error(`Could not load the Teralune ${card.key} sample PDF.`);
       }
       const data = (await res.json()) as {
         fileName: string;
@@ -278,38 +332,37 @@ function NewReviewContent() {
         sizeBytes: number;
         base64Data: string;
       };
-      setTitle("Teralune Summer Refreshment Advertisement");
-      setContentType("Campaign Copy");
 
       const hasTeraluneBrand = workspaceBrands.some(
-        (b) => b.brandId === "demo-brand-teralune",
+        (b) => b.brandId === TERALUNE_DEMO_BRAND_ID,
       );
       if (hasTeraluneBrand) {
-        setChosenBrandId("demo-brand-teralune");
+        setChosenBrandId(TERALUNE_DEMO_BRAND_ID);
         setChosenVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+        selectBrandVersion(LATEST_KNOWLEDGE_VERSION_ID);
         setGuidelineCollection("Teralune Brand Identity & AI Guidelines v1.0");
-        void selectBrand("demo-brand-teralune");
+        void selectBrand(TERALUNE_DEMO_BRAND_ID);
       }
 
-      setTextContent(""); // Let OCR + PDF text extraction read the actual PDF!
       setAssetName(data.fileName);
       setAssetMimeType(data.mimeType);
       setAssetSizeBytes(data.sizeBytes);
       setAssetBase64(data.base64Data);
       setAssetPreviewUrl(undefined);
       setPdfEstimatedPages(1);
+      setActiveSampleCard(card);
       notify(
-        hasTeraluneBrand
-          ? "Attached Teralune test-advertisement.pdf for multimodal review"
-          : `Attached ${data.fileName} to evaluate against ${activeBrandChoice?.brandName || "your active brand"}`,
+        `Loaded ${card.label} sample (${data.fileName}) — ready to review`,
         "info",
       );
     } catch (err) {
       setFileError(
-        err instanceof Error ? err.message : "Failed to load Teralune sample PDF.",
+        err instanceof Error
+          ? err.message
+          : "Failed to load Teralune sample PDF.",
       );
     } finally {
-      setIsLoadingSample(false);
+      setLoadingSampleKey(null);
     }
   };
 
@@ -344,15 +397,7 @@ function NewReviewContent() {
     setStage("reading");
 
     try {
-      const runtimeParams =
-        typeof window !== "undefined"
-          ? new URLSearchParams(window.location.search)
-          : new URLSearchParams();
-      const previousSubmissionId = runtimeParams.get("submissionId");
-      const previousAnalysisRunId = runtimeParams.get("previousAnalysisRunId");
-      const previousReviewId = runtimeParams.get("reviewId");
-      const submissionId =
-        previousSubmissionId || `submission-${crypto.randomUUID()}`;
+      const submissionId = `submission-${crypto.randomUUID()}`;
       const isHistoricalVersion =
         Boolean(effectiveVersionId) &&
         effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID;
@@ -406,7 +451,6 @@ function NewReviewContent() {
           ...(assetBase64 ? { assetBase64 } : {}),
           assetMimeType,
           knowledgeSummary: approvedRules,
-          ...(previousAnalysisRunId ? { previousAnalysisRunId } : {}),
         }),
       });
 
@@ -414,65 +458,45 @@ function NewReviewContent() {
       const res = await payloadPromise;
       const resContentType = res.headers.get("content-type") || "";
       const responseText = await res.text();
-      let data: AnalysisResponsePayload | undefined;
       if (!res.ok) {
         let errorMessage = "Analysis request failed.";
         try {
-          const errorBody = JSON.parse(responseText) as {
-            error?: unknown;
-            analysisStatus?: unknown;
-          };
-          if (errorBody.analysisStatus === "FAILED") {
-            try {
-              data = parseAnalysisResponsePayload(JSON.parse(responseText));
-              notify(
-                "Analysis failed and was safely marked FAILED. No clean pass is asserted.",
-                "error",
-              );
-            } catch (parseError) {
-              console.error(
-                "Analysis server returned an invalid FAILED response:",
-                parseError,
-              );
-            }
-          }
+          const errorBody = JSON.parse(responseText) as { error?: unknown };
           if (typeof errorBody.error === "string" && errorBody.error.trim()) {
             errorMessage = errorBody.error;
           }
         } catch {
           // Keep the safe default for non-JSON error responses.
         }
-        if (!data) {
-          throw new Error(errorMessage);
-        }
+        throw new Error(errorMessage);
       }
 
-      if (!data) {
-        const isHtmlResponse =
-          resContentType.includes("text/html") ||
-          responseText.includes("<!DOCTYPE") ||
-          responseText.includes("<html");
+      let data: AnalysisResponsePayload;
 
-        if (isHtmlResponse) {
-          console.error(
-            "Analysis server returned HTML error page instead of JSON. Snippet:",
-            responseText.slice(0, 300),
-          );
-          throw new Error(
-            res.status === 504 || res.status === 503
-              ? "The analysis server timed out or was temporarily unavailable. Your creative asset and form details are safely preserved — please click Retry Review."
-              : "The server returned an unexpected HTML error page. Your creative asset and details are preserved — please click Retry Review.",
-          );
-        }
+      const isHtmlResponse =
+        resContentType.includes("text/html") ||
+        responseText.includes("<!DOCTYPE") ||
+        responseText.includes("<html");
 
-        try {
-          data = parseAnalysisResponsePayload(JSON.parse(responseText));
-        } catch {
-          if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
-            throw new Error("The review service returned an unexpected error response. Your creative asset and form details are preserved — please click Retry Review.");
-          }
-          throw new Error("The analysis response was invalid. Please try again.");
+      if (isHtmlResponse) {
+        console.error(
+          "Analysis server returned HTML error page instead of JSON. Snippet:",
+          responseText.slice(0, 300),
+        );
+        throw new Error(
+          res.status === 504 || res.status === 503
+            ? "The analysis server timed out or was temporarily unavailable. Your creative asset and form details are safely preserved — please click Retry Review."
+            : "The server returned an unexpected HTML error page. Your creative asset and details are preserved — please click Retry Review.",
+        );
+      }
+
+      try {
+        data = parseAnalysisResponsePayload(JSON.parse(responseText));
+      } catch {
+        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+          throw new Error("The review service returned an unexpected error response. Your creative asset and form details are preserved — please click Retry Review.");
         }
+        throw new Error("The analysis response was invalid. Please try again.");
       }
 
       setStage("complete");
@@ -520,67 +544,12 @@ function NewReviewContent() {
         analysisStatus: data.analysisStatus ?? "COMPLETED",
         analysisRunId: data.analysisRunId,
         contextWarnings: data.contextWarnings,
-        previousAnalysisRunId: data.previousAnalysisRunId,
-        coverage: data.coverage,
         ocrBlocks: data.ocrBlocks,
         visualSummary: data.visualSummary,
       };
 
-      if (previousAnalysisRunId) {
-        const previousReview =
-          reviews.find((review) => review.id === previousReviewId) ??
-          reviews.find((review) => review.analysisRunId === previousAnalysisRunId);
-        if (previousReview && data.analysisRunId) {
-          const comparison = compareReviewFindingPayloads(
-            previousAnalysisRunId,
-            data.analysisRunId,
-            previousReview.analysisStatus ?? "COMPLETED",
-            data.analysisStatus ?? "COMPLETED",
-            previousReview.findings,
-            data.findings,
-          );
-          newReview.comparison = comparison;
-        }
-      }
-
-      await addReview(newReview, submissionBrandId || brandId || undefined);
-      if (newReview.comparison && organisationId) {
-        try {
-          const response = await fetch("/api/analysis-comparisons", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(session?.accessToken
-                ? { Authorization: `Bearer ${session.accessToken}` }
-                : {}),
-            },
-            body: JSON.stringify({
-              reviewId: newReview.id,
-              organisationId,
-              comparison: newReview.comparison,
-            }),
-          });
-          if (!response.ok) {
-            notify(
-              `Review was saved, but its analysis comparison could not be saved (HTTP ${response.status}).`,
-              "info",
-            );
-          }
-        } catch (error) {
-          const reason =
-            error instanceof Error ? ` ${error.message}` : "";
-          notify(
-            `Review was saved, but its analysis comparison could not be saved.${reason}`,
-            "info",
-          );
-        }
-      }
-      if (data.analysisStatus === "FAILED") {
-        notify(
-          "Analysis failed. No clean pass is asserted.",
-          "error",
-        );
-      } else if (data.analysisStatus === "PARTIAL") {
+      await addReview(newReview, submissionBrandId);
+      if (data.analysisStatus === "PARTIAL") {
         notify(
           `Review ready (${data.findings.length} findings, partial AI coverage)`,
           "info",
@@ -641,28 +610,128 @@ function NewReviewContent() {
         </div>
       )}
 
-      {/* Quick Teralune Multimodal Test Fixture Loader */}
-      <div className="bg-[#F3EDE8] border border-[#E7E1DA] rounded-[22px] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs text-[#3F3B37]">
-          <Sparkles className="w-4 h-4 text-[#141414] shrink-0" />
-          <span className="font-medium">
-            Load the Teralune advertisement PDF fixture to test multimodal OCR, visual, and text governance:
-          </span>
+      {/* Compact Try a Teralune Demo Review Selector */}
+      <section
+        aria-label="Try a Teralune Demo Review"
+        className="bg-[#F3EDE8] border border-[#E7E1DA] rounded-[24px] p-4 sm:p-5 space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-[#141414]">
+              Try a Teralune Demo Review
+            </h2>
+            <p className="text-xs text-[#524E4A]">
+              Attach a pre-supplied Teralune advertisement PDF and run live analysis against published v1.0 guidelines.
+            </p>
+          </div>
+          <a
+            href={TERALUNE_GUIDELINES_PDF_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#141414] hover:underline shrink-0"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            View Teralune Guidelines PDF
+            <ExternalLink className="w-3 h-3" />
+          </a>
         </div>
-        <button
-          type="button"
-          onClick={loadTeraluneSamplePdf}
-          disabled={isLoadingSample || isSubmitting}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors shrink-0 disabled:opacity-50"
-        >
-          {isLoadingSample ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <FileText className="w-3.5 h-3.5" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {TERALUNE_REVIEW_SAMPLE_CARDS.map((card) => {
+            const isSelected = activeSampleCard?.key === card.key;
+            const isBusy = loadingSampleKey === card.key;
+            const isWarning = card.tone === "warning";
+
+            return (
+              <div
+                key={card.key}
+                className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition-colors ${
+                  isSelected
+                    ? isWarning
+                      ? "bg-[#FAF0C8]/70 border-[#D97706]"
+                      : "bg-[#CDEEE0]/60 border-[#14532D]"
+                    : isWarning
+                    ? "bg-[#FAF0C8]/40 border-[#EDE1B4]"
+                    : "bg-[#CDEEE0]/35 border-[#BAE0D0]"
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-[#141414]">
+                      {card.label}
+                    </span>
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        isWarning ? "text-[#78350F]" : "text-[#14532D]"
+                      }`}
+                    >
+                      {isSelected ? "Demo sample selected" : card.subtitle}
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-mono text-[#524E4A] truncate">
+                    {card.fileName}
+                  </p>
+                  {card.warningNote && (
+                    <p className="text-[11px] text-[#78350F] leading-snug pt-0.5">
+                      {card.warningNote}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <a
+                    href={card.publicUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#3F3B37] hover:text-[#141414] hover:underline"
+                  >
+                    Inspect PDF
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => loadTeraluneSamplePdf(card)}
+                    disabled={Boolean(loadingSampleKey) || isSubmitting}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      isSelected
+                        ? "bg-[#141414] text-white"
+                        : "bg-white border border-[#E7E1DA] hover:border-[#141414] text-[#141414]"
+                    }`}
+                  >
+                    {isBusy ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : isWarning ? (
+                      <ShieldAlert className="w-3.5 h-3.5 text-[#B45309]" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5 text-[#14532D]" />
+                    )}
+                    {isBusy ? "Loading..." : card.buttonLabel}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {demoReadiness &&
+          (demoReadiness.status === "attention_needed" ||
+            !demoReadiness.aiProviderReady) && (
+            <div
+              role="status"
+              className="rounded-xl bg-[#FFF4E5] border border-[#FFE2BA] px-3.5 py-2.5 text-xs text-[#78350F] space-y-1"
+            >
+              <p className="font-semibold flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
+                Readiness Check Notice
+              </p>
+              {demoReadiness.warnings.map((warn, i) => (
+                <p key={`new-review-readiness-${i}`} className="text-[11px] leading-snug">
+                  • {warn}
+                </p>
+              ))}
+            </div>
           )}
-          Attach Teralune Test PDF
-        </button>
-      </div>
+      </section>
 
       {/* Missing Active Brand Alert in Authenticated Mode */}
       {hydrated &&
@@ -1088,3 +1157,4 @@ export default function NewReviewPage() {
     </Suspense>
   );
 }
+

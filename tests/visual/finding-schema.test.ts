@@ -3,7 +3,6 @@ import test from "node:test";
 import sharp from "sharp";
 import { teraluneKnowledge } from "../../lib/brand-context/teralune-brand-fixture";
 import { ReviewFindingSchema } from "../../lib/contracts";
-import type { BrandContext } from "../../lib/contracts";
 import {
   adaptBrandKnowledgeToVisualContext,
   analyzeCreativeVisually,
@@ -49,19 +48,6 @@ test("BrandVisualContext adapter keeps real source IDs and skips unapproved visu
 });
 
 test("VisualFindingSchema and canonical ReviewFinding mapping validate without losing bounding boxes", () => {
-  const brandContext: BrandContext = {
-    brandProfile: "Teralune",
-    approvedGuidelines: [],
-    approvedProductFacts: [],
-    approvedPromotionalClaims: [],
-    preferredTerminology: [],
-    prohibitedTerminology: [],
-    approvedColours: ["Deep Current (#163A52) [Source: Teralune Approved Logo and Product Appearance (fictional) (SRC-ASSET-01; 1.0)]"],
-    approvedVisualAssetReferences: [],
-    sourceIds: ["SRC-ASSET-01"],
-    versionId: "1.0",
-    sourceVersionInformation: "Teralune Approved Logo and Product Appearance (fictional) (SRC-ASSET-01; 1.0)",
-  };
   const sampleFinding: VisualFinding = {
     id: "vis-sample-1",
     ruleId: "IMG-03",
@@ -73,9 +59,9 @@ test("VisualFindingSchema and canonical ReviewFinding mapping validate without l
     sourceReference: {
       sourceId: "SRC-ASSET-01",
       sourceVersion: "1.0",
-      sourceTitle: "Teralune Approved Logo and Product Appearance (fictional)",
+      sourceTitle: "Teralune Brand Identity & Design Guidelines (fictional)",
       pageNumber: 5,
-      excerpt: null,
+      excerpt: "Deep Current #163A52, Spring Teal #239A8B",
     },
     creativeEvidence: {
       assetId: "asset-1",
@@ -92,7 +78,7 @@ test("VisualFindingSchema and canonical ReviewFinding mapping validate without l
   };
 
   assert.equal(VisualFindingSchema.safeParse(sampleFinding).success, true);
-  const canonical = mapVisualFindingsToCanonical([sampleFinding], brandContext);
+  const canonical = mapVisualFindingsToCanonical([sampleFinding]);
   assert.equal(canonical.length, 1);
   assert.equal(ReviewFindingSchema.safeParse(canonical[0]).success, true);
   assert.equal(canonical[0]!.location?.pageNumber, 1);
@@ -104,73 +90,6 @@ test("VisualFindingSchema and canonical ReviewFinding mapping validate without l
   });
   assert.equal(canonical[0]!.ruleId, "IMG-03");
   assert.equal(canonical[0]!.detector, "deterministic");
-  assert.equal(canonical[0]!.status, "CONFLICTING");
-  assert.equal(canonical[0]!.evidenceReferences[0]?.sourceId, "SRC-ASSET-01");
-  assert.equal(canonical[0]!.evidenceReferences[0]?.versionId, "1.0");
-});
-
-test("visual evidence is rejected when source metadata is missing or mismatched", () => {
-  const brandContext: BrandContext = {
-    brandProfile: "Teralune",
-    approvedGuidelines: [],
-    approvedProductFacts: [],
-    approvedPromotionalClaims: [],
-    preferredTerminology: [],
-    prohibitedTerminology: [],
-    approvedColours: [],
-    approvedVisualAssetReferences: [],
-    sourceIds: ["SRC-ASSET-01"],
-    versionId: "1.0",
-    sourceVersionInformation: "Teralune Approved Logo and Product Appearance (fictional) (SRC-ASSET-01; 1.0)",
-  };
-  const baseFinding: VisualFinding = {
-    id: "vis-evidence-validation",
-    ruleId: "IMG-03",
-    category: "colour",
-    title: "Unapproved dominant orange",
-    explanation: "Graphic uses an unapproved orange.",
-    expectedValue: "#163A52",
-    observedValue: "#E95126",
-    sourceReference: {
-      sourceId: "SRC-ASSET-01",
-      sourceVersion: "1.0",
-      sourceTitle: "Teralune Approved Logo and Product Appearance (fictional)",
-      pageNumber: 2,
-      excerpt: "Deep Current",
-    },
-    creativeEvidence: {
-      assetId: "asset-1",
-      pageNumber: 1,
-      boundingBox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-      description: "Graphic region",
-    },
-    confidence: 0.9,
-    reviewStatus: "candidate",
-    severity: "HIGH",
-    detector: "gemini_vision",
-  };
-
-  const missing = mapVisualFindingsToCanonical([{
-    ...baseFinding,
-    sourceReference: { ...baseFinding.sourceReference, sourceId: null, sourceVersion: null },
-  }], brandContext)[0]!;
-  assert.equal(missing.status, "UNVERIFIED");
-  assert.deepEqual(missing.evidenceReferences, []);
-  assert.equal(missing.location?.pageNumber, 1);
-
-  const mismatchedId = mapVisualFindingsToCanonical([{
-    ...baseFinding,
-    sourceReference: { ...baseFinding.sourceReference, sourceId: "SRC-DRAFT-99" },
-  }], brandContext)[0]!;
-  assert.equal(mismatchedId.status, "UNVERIFIED");
-  assert.deepEqual(mismatchedId.evidenceReferences, []);
-
-  const mismatchedVersion = mapVisualFindingsToCanonical([{
-    ...baseFinding,
-    sourceReference: { ...baseFinding.sourceReference, sourceVersion: "0.9" },
-  }], brandContext)[0]!;
-  assert.equal(mismatchedVersion.status, "UNVERIFIED");
-  assert.deepEqual(mismatchedVersion.evidenceReferences, []);
 });
 
 test("Gemini Vision response validator rejects fabricated sourceId or sourceVersion", () => {

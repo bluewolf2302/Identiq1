@@ -230,6 +230,10 @@ export function mergeAndDeduplicatePageTextBlocks(
   if (embeddedBlocks.length === 0) return ocrBlocks;
   if (ocrBlocks.length === 0) return embeddedBlocks;
 
+  const embeddedFullNorm = normalizeTextForDedup(
+    embeddedBlocks.map((b) => b.text).join(" "),
+  );
+
   const uniqueOcrBlocks = ocrBlocks.filter((ocr) => {
     const ocrNorm = normalizeTextForDedup(ocr.text);
     if (!ocrNorm) return false;
@@ -240,7 +244,7 @@ export function mergeAndDeduplicatePageTextBlocks(
 
       // Same text or containment with spatial overlap
       const iou = boxIoU(ocr.boundingBox, emb.boundingBox);
-      if (ocrNorm === embNorm && iou > 0.15) {
+      if (ocrNorm === embNorm && (iou > 0.15 || embeddedBlocks.length <= 3)) {
         return false;
       }
       if (
@@ -249,6 +253,11 @@ export function mergeAndDeduplicatePageTextBlocks(
       ) {
         return false;
       }
+    }
+
+    // If the whole OCR line is already contained verbatim inside the embedded text layer
+    if (ocrNorm.length >= 8 && embeddedFullNorm.includes(ocrNorm)) {
+      return false;
     }
 
     return true;

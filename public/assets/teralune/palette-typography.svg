@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none" role="img" aria-label="Teralune Brand Palette and Typography Specification">
+  <rect width="640" height="360" rx="20" fill="#F4F8F7"/>
+  <rect x="24" y="24" width="592" height="312" rx="14" fill="#FFFFFF" stroke="#DFF1ED" stroke-width="2"/>
+
+  <text x="44" y="56" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#239A8B" letter-spacing="0.08em">TERALUNE · VISUAL IDENTITY v1.0 · DEMO SAMPLE</text>
+  <text x="44" y="80" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="800" fill="#163A52">Approved Palette &amp; Typography Standards</text>
+
+  <!-- 4 Approved Colour Swatches -->
+  <g transform="translate(44, 102)">
+    <rect width="128" height="104" rx="12" fill="#163A52"/>
+    <text x="12" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#FFFFFF">Deep Current</text>
+    <text x="12" y="90" font-family="monospace" font-size="11" font-weight="700" fill="#DFF1ED">#163A52</text>
+  </g>
+  <g transform="translate(184, 102)">
+    <rect width="128" height="104" rx="12" fill="#239A8B"/>
+    <text x="12" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#FFFFFF">Spring Teal</text>
+    <text x="12" y="90" font-family="monospace" font-size="11" font-weight="700" fill="#F4F8F7">#239A8B</text>
+  </g>
+  <g transform="translate(324, 102)">
+    <rect width="128" height="104" rx="12" fill="#DFF1ED" stroke="#239A8B" stroke-opacity="0.25"/>
+    <text x="12" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#163A52">Mist</text>
+    <text x="12" y="90" font-family="monospace" font-size="11" font-weight="700" fill="#163A52">#DFF1ED</text>
+  </g>
+  <g transform="translate(464, 102)">
+    <rect width="132" height="104" rx="12" fill="#F4F8F7" stroke="#CBD5E1"/>
+    <text x="12" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#163A52">Cloud White</text>
+    <text x="12" y="90" font-family="monospace" font-size="11" font-weight="700" fill="#163A52">#F4F8F7</text>
+  </g>
+
+  <!-- Typography Strip -->
+  <rect x="44" y="224" width="552" height="90" rx="12" fill="#F4F8F7" stroke="#DFF1ED"/>
+  <text x="62" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#239A8B">TYPOGRAPHY &amp; MARKS</text>
+  <text x="62" y="274" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#163A52">Headings: Manrope Bold · Body: Inter / clean sans-serif</text>
+  <text x="62" y="296" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="500" fill="#163A52" opacity="0.8">Authorized trademark mark: Teralune™ only (do not use Teralune®) · Unit format: 500 mL</text>
+</svg>

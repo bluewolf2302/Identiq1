@@ -248,8 +248,6 @@ export function adaptBrandKnowledgeToVisualContext(
 
   if (approvedLogos.length === 0) {
     warnings.push("NO_APPROVED_LOGOS");
-  } else if (approvedLogos.every((logo) => logo.referencePngBuffer === undefined)) {
-    warnings.push("NO_APPROVED_LOGO_REFERENCE_IMAGE");
   }
 
   // 4. Visual rules collection with real provenance
@@ -424,9 +422,6 @@ export function adaptBrandContextToVisualContext(
   const warnings: string[] = [];
   if (approvedPalette.length === 0) warnings.push("NO_APPROVED_PALETTE");
   if (approvedLogos.length === 0) warnings.push("NO_APPROVED_LOGOS");
-  else if (approvedLogos.every((logo) => logo.referencePngBuffer === undefined)) {
-    warnings.push("NO_APPROVED_LOGO_REFERENCE_IMAGE");
-  }
 
   const brandName = context.brandProfile.split("(")[0]?.trim() || brandId;
 

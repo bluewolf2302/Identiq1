@@ -24,9 +24,14 @@ import {
 } from "@/lib/review-decisions";
 import {
   INITIAL_ACTIVITY,
-  INITIAL_ASSETS,
   INITIAL_REVIEWS,
 } from "@/lib/seed-data";
+import {
+  DemoPersona,
+  resolveDemoPersonaConfig,
+  TERALUNE_CURATED_DEMO_ASSETS,
+  TERALUNE_DEMO_BRAND_ID,
+} from "@/lib/demo/teralune-demo-fixtures";
 import {
   PersistenceMode,
   callPostgrest,
@@ -198,6 +203,10 @@ export interface IdentiqContextValue {
   resetDemoWorkspace: () => void;
   enterSharedDemoMode: () => Promise<void>;
   enterLocalDemoMode: () => void;
+  enterTeraluneDemo: (options?: { persona?: DemoPersona }) => Promise<void>;
+  isDemoWorkspace: boolean;
+  demoPersona: DemoPersona;
+  setDemoPersona: (persona: DemoPersona) => void;
   notify: (text: string, tone?: "success" | "info" | "error") => void;
   viewerProfile: ViewerProfile;
   profileHydrated: boolean;
@@ -223,6 +232,7 @@ export interface IdentiqContextValue {
 export const STORAGE_KEY = "identiq_workspace_v2";
 export const ORG_STORAGE_KEY = "identiq_org_id";
 export const BRAND_STORAGE_KEY = "identiq_brand_id";
+export const DEMO_PERSONA_STORAGE_KEY = "identiq_demo_persona_v1";
 
 export interface BrandLookupResult {
   id: string;
@@ -679,7 +689,8 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     selectedBrandIdRef.current = selectedBrandId;
   }, [selectedBrandId]);
-  const [assets, setAssets] = useState<BrandAsset[]>(INITIAL_ASSETS);
+  const [assets, setAssets] = useState<BrandAsset[]>(TERALUNE_CURATED_DEMO_ASSETS);
+  const [demoPersona, setDemoPersonaState] = useState<DemoPersona>("Brand Manager");
   const [activities, setActivities] = useState<ActivityEvent[]>(INITIAL_ACTIVITY);
   const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_SETTINGS);
   const [activeReviewId, setActiveReviewId] = useState<string>(INITIAL_REVIEWS[0].id);
@@ -863,6 +874,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
             setUser(activeSession.user);
             setUserOrganisations(memberships);
             updatePersistenceStatus(true, true);
+            setAssets((prev) => prev.filter((a) => !a.isDemoFixture));
 
             // Fetch initial persisted data
             const dataGen = tenancyManager.currentGeneration;
@@ -937,7 +949,12 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                 setReviews(parsed.reviews);
                 setActiveReviewId(parsed.reviews[0].id);
               }
-              if (Array.isArray(parsed.assets)) setAssets(parsed.assets);
+              if (Array.isArray(parsed.assets)) {
+                const customAssets = (parsed.assets as BrandAsset[]).filter(
+                  (a) => !a.isDemoFixture,
+                );
+                setAssets([...TERALUNE_CURATED_DEMO_ASSETS, ...customAssets]);
+              }
               if (Array.isArray(parsed.activities)) setActivities(parsed.activities);
               if (parsed.settings) {
                 setSettings((prev) => ({
@@ -1334,6 +1351,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       setUserOrganisations([]);
       tenancyManager.reset();
       updatePersistenceStatus(false, false);
+      setAssets(TERALUNE_CURATED_DEMO_ASSETS);
       notify("Signed out", "info");
     } catch (err) {
       notify(err instanceof Error ? err.message : "Error during sign out", "error");
@@ -2168,11 +2186,17 @@ const prevActivities = activities;
             : null;
         const currentSelected = selectedBrandIdRef.current;
         const preferred =
-          brands.find((b) => b.brandId === currentSelected) ||
-          brands.find((b) => b.brandId === storedBrandId) ||
-          brands.find((b) => !b.isSample) ||
-          brands[0] ||
-          null;
+          persistenceMode === "AUTHENTICATED_SUPABASE"
+            ? brands.find((b) => b.brandId === currentSelected) ||
+              brands.find((b) => b.brandId === storedBrandId) ||
+              brands.find((b) => !b.isSample) ||
+              brands[0] ||
+              null
+            : brands.find((b) => b.brandId === currentSelected) ||
+              brands.find((b) => b.brandId === storedBrandId) ||
+              brands.find((b) => b.brandId === TERALUNE_DEMO_BRAND_ID) ||
+              brands[0] ||
+              null;
 
         if (preferred) {
           if (preferred.brandId !== currentSelected) {
@@ -2786,7 +2810,7 @@ const prevActivities = activities;
     } else {
       localStorage.removeItem(STORAGE_KEY);
       setReviews(INITIAL_REVIEWS);
-      setAssets(INITIAL_ASSETS);
+      setAssets(TERALUNE_CURATED_DEMO_ASSETS);
       setActivities(INITIAL_ACTIVITY);
       setSettings({
         ...DEFAULT_SETTINGS,
@@ -2803,6 +2827,10 @@ const prevActivities = activities;
     setDemoModePreference("shared");
     tenancyManager.reset();
     updatePersistenceStatus(false, false, true);
+    setAssets((prev) => {
+      const custom = prev.filter((a) => !a.isDemoFixture);
+      return [...TERALUNE_CURATED_DEMO_ASSETS, ...custom];
+    });
     startSync();
     try {
       const demoRev = new DemoReviewRepository();
@@ -2834,8 +2862,96 @@ const prevActivities = activities;
     updatePersistenceStatus(false, false, false);
     setReviewRepo(new LocalReviewRepository(INITIAL_REVIEWS));
     setActivityRepo(new LocalActivityRepository(INITIAL_ACTIVITY));
+    setAssets((prev) => {
+      const custom = prev.filter((a) => !a.isDemoFixture);
+      return [...TERALUNE_CURATED_DEMO_ASSETS, ...custom];
+    });
     notify("Switched to local workspace", "info");
   }, [tenancyManager, notify, updatePersistenceStatus]);
+
+  const setDemoPersona = useCallback((persona: DemoPersona) => {
+    const resolved = resolveDemoPersonaConfig(persona);
+    setDemoPersonaState(resolved.persona);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(DEMO_PERSONA_STORAGE_KEY, resolved.persona);
+      } catch {
+        // Ignore storage restrictions
+      }
+    }
+    setViewerProfile((prev) => {
+      const next: ViewerProfile = {
+        ...prev,
+        name: resolved.displayName,
+        role: resolved.roleTitle,
+        avatarId: resolved.avatarId,
+        onboardingCompleted: true,
+        guidedTourCompleted: true,
+        updatedAt: new Date().toISOString(),
+      };
+      saveViewerProfile(next);
+      return next;
+    });
+    setSettings((prev) => ({
+      ...prev,
+      reviewerName: resolved.displayName,
+      reviewerRole: resolved.roleTitle,
+    }));
+  }, []);
+
+  const enterTeraluneDemo = useCallback(
+    async (options?: { persona?: DemoPersona }) => {
+      const chosenPersona = resolveDemoPersonaConfig(
+        options?.persona ?? demoPersona,
+      );
+      setDemoPersonaState(chosenPersona.persona);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(DEMO_PERSONA_STORAGE_KEY, chosenPersona.persona);
+          localStorage.setItem(BRAND_STORAGE_KEY, TERALUNE_DEMO_BRAND_ID);
+        } catch {
+          // Ignore storage restrictions
+        }
+      }
+
+      const nextProfile: ViewerProfile = {
+        name: chosenPersona.displayName,
+        role: chosenPersona.roleTitle,
+        avatarId: chosenPersona.avatarId,
+        onboardingCompleted: true,
+        guidedTourCompleted: true,
+        updatedAt: new Date().toISOString(),
+      };
+      setViewerProfile(nextProfile);
+      saveViewerProfile(nextProfile);
+      setGuidedTourOpen(false);
+      setSettings((prev) => ({
+        ...prev,
+        reviewerName: nextProfile.name,
+        reviewerRole: nextProfile.role,
+      }));
+
+      const hasSupabaseEnv = Boolean(
+        process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim(),
+      );
+      if (hasSupabaseEnv) {
+        await enterSharedDemoMode();
+      } else {
+        enterLocalDemoMode();
+      }
+
+      setSelectedBrandId(TERALUNE_DEMO_BRAND_ID);
+      setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+      await loadKnowledgeForBrand(TERALUNE_DEMO_BRAND_ID);
+    },
+    [
+      demoPersona,
+      enterSharedDemoMode,
+      enterLocalDemoMode,
+      loadKnowledgeForBrand,
+    ],
+  );
 
   const completeOnboarding = useCallback(
     (input: {
@@ -2999,6 +3115,11 @@ const prevActivities = activities;
         resetDemoWorkspace,
         enterSharedDemoMode,
         enterLocalDemoMode,
+        enterTeraluneDemo,
+        isDemoWorkspace:
+          persistenceMode === "SHARED_DEMO" || persistenceMode === "DEMO_LOCAL",
+        demoPersona,
+        setDemoPersona,
         notify,
         viewerProfile,
         profileHydrated,

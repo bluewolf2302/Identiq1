@@ -1,22 +1,11 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { readTeraluneSamplePdf } from "@/lib/demo/teralune-server-samples";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const filePath = path.join(
-      process.cwd(),
-      "sample-data",
-      "teralune",
-      "test-advertisement.pdf",
-    );
-    const buffer = await fs.readFile(filePath);
-    return NextResponse.json({
-      fileName: "test-advertisement.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: buffer.length,
-      base64Data: buffer.toString("base64"),
-    });
+    const sampleParam = request.nextUrl.searchParams.get("sample");
+    const loaded = await readTeraluneSamplePdf(sampleParam);
+    return NextResponse.json(loaded);
   } catch {
     return NextResponse.json(
       { error: "Teralune sample advertisement PDF is unavailable." },

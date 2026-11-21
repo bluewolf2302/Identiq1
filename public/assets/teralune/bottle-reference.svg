@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none" role="img" aria-label="Teralune Still Spring Water 500 mL Packaging Reference Placeholder">
+  <rect width="640" height="360" rx="20" fill="#F4F8F7"/>
+  <rect x="24" y="24" width="592" height="312" rx="14" fill="#FFFFFF" stroke="#DFF1ED" stroke-width="2"/>
+
+  <rect x="44" y="42" width="218" height="22" rx="11" fill="#DFF1ED"/>
+  <text x="153" y="57" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#163A52" letter-spacing="0.06em">DEMO PACKAGING SPEC · PLACEHOLDER</text>
+
+  <!-- Stylized Clear PET Bottle Silhouette -->
+  <g transform="translate(106, 86)">
+    <!-- Deep Current Cap -->
+    <rect x="42" y="0" width="44" height="22" rx="5" fill="#163A52"/>
+    <!-- Neck -->
+    <path d="M46 22H82L92 48V216C92 224.8 84.8 232 76 232H52C43.2 232 36 224.8 36 216V48L46 22Z" fill="#DFF1ED" fill-opacity="0.55" stroke="#163A52" stroke-opacity="0.35" stroke-width="2"/>
+    <!-- White Label -->
+    <rect x="38" y="96" width="52" height="84" rx="4" fill="#FFFFFF" stroke="#239A8B" stroke-opacity="0.45"/>
+    <!-- Spring Teal Droplet on Label -->
+    <path d="M64 112C64 112 52 126 52 134C52 140.6 57.4 146 64 146C70.6 146 76 140.6 76 134C76 126 64 112 64 112Z" fill="#239A8B"/>
+    <text x="64" y="162" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="8" font-weight="800" fill="#163A52">TERALUNE™</text>
+    <text x="64" y="173" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="7" font-weight="600" fill="#239A8B">500 mL</text>
+  </g>
+
+  <!-- Product Facts Summary (strictly matching SRC-PROD-01) -->
+  <g transform="translate(268, 96)">
+    <text x="0" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#239A8B" letter-spacing="0.08em">APPROVED PRODUCT RECORD · SRC-PROD-01</text>
+    <text x="0" y="44" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#163A52">Teralune™ Still Spring Water</text>
+    <text x="0" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#163A52">Pack Size: 500 mL (space + capital L)</text>
+    <text x="0" y="96" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#163A52">SKU: TLSW-500 · Standard MRP: ₹25</text>
+    <text x="0" y="120" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#163A52" opacity="0.8">Appearance: Clear PET bottle · Deep Current #163A52 cap</text>
+    <text x="0" y="142" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#163A52" opacity="0.8">Label: White wrap with Spring Teal #239A8B droplet mark</text>
+    <text x="0" y="176" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#78350F">PRD-05: No sale price or discount is currently approved.</text>
+  </g>
+</svg>

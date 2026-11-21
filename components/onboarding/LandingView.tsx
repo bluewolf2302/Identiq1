@@ -15,9 +15,15 @@ import {
 
 interface LandingViewProps {
   onGetStarted: () => void;
+  onExploreDemo?: () => Promise<void> | void;
+  enteringDemo?: boolean;
 }
 
-export function LandingView({ onGetStarted }: LandingViewProps) {
+export function LandingView({
+  onGetStarted,
+  onExploreDemo,
+  enteringDemo = false,
+}: LandingViewProps) {
   const prefersReducedMotion = useReducedMotion();
 
   const heroMotion = prefersReducedMotion
@@ -46,8 +52,8 @@ export function LandingView({ onGetStarted }: LandingViewProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F6] text-[#141414]">
-      {/* Minimal Single-Identity Header (Zero competing nav/login links) */}
-      <header className="w-full max-w-[1200px] mx-auto px-5 sm:px-8 pt-6 pb-4 flex items-center justify-between">
+      {/* Minimal Single-Identity Header */}
+      <header className="w-full max-w-[1200px] mx-auto px-5 sm:px-8 pt-6 pb-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <span className="w-8 h-8 rounded-xl bg-[#141414] text-white flex items-center justify-center shadow-xs">
             <ShieldCheck className="w-4 h-4" />
@@ -56,9 +62,15 @@ export function LandingView({ onGetStarted }: LandingViewProps) {
             Identiq
           </span>
         </div>
-        <span className="text-xs font-medium text-[#6B6560]">
-          Brand Governance Platform
-        </span>
+        <div className="flex items-center gap-4 text-xs font-medium text-[#6B6560]">
+          <span className="hidden sm:inline">Brand Governance Platform</span>
+          <a
+            href="/login"
+            className="font-semibold text-[#141414] hover:underline focus:outline-none focus:ring-2 focus:ring-[#141414] rounded-md px-1 py-0.5"
+          >
+            Sign In
+          </a>
+        </div>
       </header>
 
       {/* Main Content */}
@@ -75,16 +87,34 @@ export function LandingView({ onGetStarted }: LandingViewProps) {
             <p className="text-sm sm:text-base text-[#524E4A] leading-relaxed max-w-xl">
               Check campaign copy, visual layouts, palettes, and claims against your approved brand rules. Every finding distinguishes supported usage, direct conflicts, and unverified claims before sign-off.
             </p>
-            <div className="pt-2">
+            <div className="pt-2 flex flex-wrap items-center gap-3">
+              {onExploreDemo && (
+                <button
+                  type="button"
+                  disabled={enteringDemo}
+                  onClick={() => {
+                    void onExploreDemo();
+                  }}
+                  className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] disabled:opacity-60 text-sm font-semibold transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
+                >
+                  <span>{enteringDemo ? "Opening Demo..." : "Explore the Teralune Demo"}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onGetStarted}
-                className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-sm font-semibold transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#F3EDE8] text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
               >
-                <span>Get Started</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>{onExploreDemo ? "Custom Setup" : "Get Started"}</span>
+                {!onExploreDemo && <ArrowRight className="w-4 h-4" />}
               </button>
             </div>
+            {onExploreDemo && (
+              <p className="text-xs text-[#6B6560] max-w-lg">
+                Explore how IdentIQ checks advertisements against brand guidelines. No setup required.
+              </p>
+            )}
           </motion.div>
 
           {/* Bespoke Editorial Vector Governance Composition (Zero Stock Photos) */}

@@ -65,10 +65,6 @@ test("low-resolution creative produces quality warning and uncertain/human-revie
   });
 
   assert.ok(result.warnings.some((w) => w.toLowerCase().includes("low-resolution")));
-  assert.equal(result.status, "PARTIAL");
-  assert.ok(
-    result.warnings.some((w) => w.includes("NO_APPROVED_LOGO_REFERENCE_IMAGE")),
-  );
   assert.ok(result.visualFindings.length >= 1);
   assert.equal(
     result.visualFindings.some((f) => f.reviewStatus === "candidate"),

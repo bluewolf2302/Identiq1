@@ -22,7 +22,6 @@ export interface ReviewFinding {
   category: FindingCategory;
   title: string;
   description: string;
-  explanation?: string;
   severity: FindingSeverity;
   evidenceStatus: EvidenceStatus;
   detectedValue: string;
@@ -93,9 +92,6 @@ export interface ReviewSubmission {
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   analysisRunId?: string;
   contextWarnings?: string[];
-  previousAnalysisRunId?: string;
-  coverage?: import("./contracts/analysis").AnalysisCoverage;
-  comparison?: import("./analysis/comparison").AnalysisComparison;
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }
@@ -188,6 +184,10 @@ export interface BrandAsset {
   dimensions: string;
   status: "Approved" | "Pending Review";
   previewUrl?: string;
+  documentUrl?: string;
+  pageCount?: number;
+  brandId?: string;
+  isDemoFixture?: boolean;
   colorTone: PastelTheme;
   usageNote: string;
   updatedAt: string;
@@ -226,7 +226,6 @@ export interface AnalysisRequestPayload {
   assetBase64?: string;
   assetMimeType?: string;
   knowledgeSummary?: string[];
-  previousAnalysisRunId?: string;
 }
 
 export interface AnalysisResponsePayload {
@@ -242,8 +241,6 @@ export interface AnalysisResponsePayload {
   analysisStatus?: "COMPLETED" | "PARTIAL" | "FAILED";
   fallbackUsed?: boolean;
   contextWarnings?: string[];
-  coverage?: import("./contracts/analysis").AnalysisCoverage;
-  previousAnalysisRunId?: string;
   ocrBlocks?: import("./contracts").OcrBlockContract[];
   visualSummary?: import("./contracts").VisualAnalysisSummary;
 }

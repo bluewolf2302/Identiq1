@@ -70,7 +70,7 @@ export const AiFindingCandidateSchema = z
     expectedValue: optionalNonEmptyString,
     explanation: z.string().trim().min(1),
     suggestedCorrection: optionalNonEmptyString,
-    evidenceReferences: z.array(CandidateEvidenceSchema),
+    evidenceReferences: z.array(CandidateEvidenceSchema).min(1),
     location: z.preprocess(
       (v) => (v === null ? undefined : v),
       CandidateLocationSchema.optional(),

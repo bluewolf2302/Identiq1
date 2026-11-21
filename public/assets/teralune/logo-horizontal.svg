@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none" role="img" aria-label="Teralune Primary Horizontal Logo">
+  <rect width="640" height="360" rx="20" fill="#F4F8F7"/>
+  <rect x="24" y="24" width="592" height="312" rx="14" fill="#FFFFFF" stroke="#DFF1ED" stroke-width="2"/>
+  <rect x="44" y="42" width="136" height="22" rx="11" fill="#DFF1ED"/>
+  <text x="112" y="57" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#163A52" letter-spacing="0.06em">DEMO SAMPLE</text>
+
+  <!-- Clearspace frame -->
+  <rect x="72" y="102" width="496" height="156" rx="12" stroke="#DFF1ED" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+  <!-- Droplet-and-wave mark -->
+  <g transform="translate(106, 126)">
+    <path d="M44 4C44 4 12 41 12 64C12 81.6731 26.3269 96 44 96C61.6731 96 76 81.6731 76 64C76 41 44 4 44 4Z" fill="#163A52"/>
+    <path d="M19 63C27 56 35 56 44 63C53 70 61 70 69 63C67 78 56 89 44 89C32 89 21 78 19 63Z" fill="#239A8B"/>
+    <path d="M26 53C33 48 40 48 47 53C53 57 59 57 65 53" stroke="#DFF1ED" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark + Tagline -->
+  <text x="212" y="176" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="800" letter-spacing="0.08em" fill="#163A52">TERALUNE™</text>
+  <line x1="212" y1="194" x2="534" y2="194" stroke="#DFF1ED" stroke-width="2"/>
+  <text x="212" y="218" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" letter-spacing="0.14em" fill="#239A8B">STILL SPRING WATER  ·  REFRESHMENT, NATURALLY.</text>
+
+  <text x="44" y="314" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#163A52" opacity="0.7">LOG-01 / LOG-04 · Primary Horizontal Lockup · Min 120 px digital / 28 mm print</text>
+</svg>

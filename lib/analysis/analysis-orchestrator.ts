@@ -3,7 +3,6 @@ import {
   AnalysisResponseSchema,
   type AnalysisRequest,
   type AnalysisResponse,
-  type AnalysisCoverage,
   type ReviewFinding,
 } from "../contracts";
 import {
@@ -195,66 +194,6 @@ export class AnalysisOrchestrator {
           visualResult.warnings.some((w) => w.toLowerCase().includes("fallback"))),
     );
 
-    const coverage: AnalysisCoverage = {
-      brandContext:
-        contextResult.warnings.length > 0
-          ? {
-              status: "COMPLETED",
-              reason: `Approved brand context was loaded with warnings: ${contextResult.warnings.join(", ")}.`,
-            }
-          : { status: "COMPLETED" },
-      deterministic: { status: "COMPLETED" },
-      semanticAI: semanticResult.error
-        ? {
-            status:
-              semanticResult.findings.length > 0 ? "COMPLETED" : "FAILED",
-            reason: semanticResult.error,
-          }
-        : {
-            status: "COMPLETED",
-            ...(semanticResult.providerUsed === "none"
-              ? {
-                  reason:
-                    "No semantic AI provider was used for this analysis.",
-                  status: "SKIPPED" as const,
-                }
-              : {}),
-          },
-      visual: !request.data.creativePayload
-        ? {
-            status: "SKIPPED",
-            reason: "No creative asset was supplied.",
-          }
-        : visualResult
-          ? {
-              status: visualResult.status,
-              ...(visualResult.errors.length > 0
-                ? { reason: visualResult.errors.join(" ") }
-                : visualResult.warnings.length > 0
-                  ? { reason: visualResult.warnings.join(" ") }
-                  : {}),
-            }
-          : { status: "UNAVAILABLE", reason: "Visual analysis was not configured." },
-      ocr: !request.data.creativePayload
-        ? {
-            status: "SKIPPED",
-            reason: "No creative asset was supplied.",
-          }
-        : visualResult
-          ? visualResult.ocrBlocks.length > 0
-            ? visualResult.ocrBlocks.some((block) => block.uncertain)
-              ? {
-                  status: "COMPLETED",
-                  reason: "One or more OCR text blocks are uncertain and require human review.",
-                }
-              : { status: "COMPLETED" }
-            : {
-                status: "SKIPPED",
-                reason: "No readable OCR or PDF text was extracted.",
-              }
-          : { status: "UNAVAILABLE", reason: "OCR could not run." },
-    };
-
     const resolvedProvider =
       semanticResult.providerUsed !== "none"
         ? semanticResult.providerUsed
@@ -276,10 +215,6 @@ export class AnalysisOrchestrator {
       analysisTimestamp: this.now().toISOString(),
       ...(contextResult.warnings.length > 0
         ? { contextWarnings: contextResult.warnings }
-        : {}),
-      coverage,
-      ...(request.data.previousAnalysisRunId
-        ? { previousAnalysisRunId: request.data.previousAnalysisRunId }
         : {}),
       ...(visualResult
         ? {
