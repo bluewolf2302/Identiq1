@@ -86,10 +86,31 @@ export interface ReviewRepository {
   addManualFinding(params: AddManualFindingParams): Promise<{ findingId: string; reviewId: string; complianceScore: number }>;
 }
 
+const LEGACY_REVIEW_SUBMISSION_RPC = "/rest/v1/rpc/submit_review_atomic";
+const EVIDENCE_REVIEW_SUBMISSION_RPC =
+  "/rest/v1/rpc/submit_review_atomic_with_evidence";
+
+type PostgrestCaller = typeof callPostgrest;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function supportsEvidenceReviewSubmission(openApiDocument: unknown): boolean {
+  if (!isRecord(openApiDocument) || !isRecord(openApiDocument.paths)) {
+    return false;
+  }
+
+  const endpoint = openApiDocument.paths["/rpc/submit_review_atomic_with_evidence"];
+  return isRecord(endpoint) && isRecord(endpoint.post);
+}
+
 /**
  * Supabase-backed implementation invoking the 7 atomic RPCs.
  */
 export class SupabaseReviewRepository implements ReviewRepository {
+  constructor(private readonly postgrest: PostgrestCaller = callPostgrest) {}
+
   async fetchReviews(organisationId?: string): Promise<ReviewSubmission[]> {
     const query = organisationId
       ? `/rest/v1/reviews?organisation_id=eq.${organisationId}&select=*,review_findings(*,review_comments(*))&order=submitted_at.desc`
@@ -198,8 +219,15 @@ export class SupabaseReviewRepository implements ReviewRepository {
       ),
     };
 
-    const res = await callPostgrest<{ review_id: string; compliance_score: number }>(
-      "/rest/v1/rpc/submit_review_atomic_with_evidence",
+    // Discover the optional RPC without risking a trial submission.
+    const openApi = await this.postgrest<unknown>("/rest/v1/");
+    const submissionRpc = !openApi.error &&
+      supportsEvidenceReviewSubmission(openApi.data)
+      ? EVIDENCE_REVIEW_SUBMISSION_RPC
+      : LEGACY_REVIEW_SUBMISSION_RPC;
+
+    const res = await this.postgrest<{ review_id: string; compliance_score: number }>(
+      submissionRpc,
       {
         method: "POST",
         body: payload,
