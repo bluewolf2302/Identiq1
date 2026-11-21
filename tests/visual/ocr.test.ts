@@ -182,3 +182,67 @@ test("deduplicates overlapping OCR blocks against PDF embedded text layer while 
   assert.equal(merged[0]!.source, "pdf_text_layer");
   assert.equal(merged[1]!.text, "BOTTLE LABEL 500ML");
 });
+
+test("deduplicates partially contained OCR text only when its bounding box overlaps", () => {
+  const embedded: OcrBlock[] = [
+    {
+      text: "PURE SPRING WATER 750ML",
+      pageNumber: 1,
+      boundingBox: { x: 0.1, y: 0.2, width: 0.6, height: 0.06 },
+      confidence: 1,
+      source: "pdf_text_layer",
+      uncertain: false,
+      reviewStatus: "candidate",
+    },
+  ];
+  const overlappingOcr: OcrBlock[] = [
+    {
+      text: "SPRING WATER",
+      pageNumber: 1,
+      boundingBox: { x: 0.25, y: 0.2, width: 0.2, height: 0.06 },
+      confidence: 0.95,
+      source: "ocr",
+      uncertain: false,
+      reviewStatus: "candidate",
+    },
+  ];
+  const separateOcr: OcrBlock[] = [
+    {
+      ...overlappingOcr[0]!,
+      boundingBox: { x: 0.72, y: 0.8, width: 0.2, height: 0.06 },
+    },
+  ];
+
+  assert.equal(mergeAndDeduplicatePageTextBlocks(embedded, overlappingOcr).length, 1);
+  assert.equal(mergeAndDeduplicatePageTextBlocks(embedded, separateOcr).length, 2);
+});
+
+test("preserves OCR text when matching embedded text appears in a different location", () => {
+  const embedded: OcrBlock[] = [
+    {
+      text: "750ML",
+      pageNumber: 1,
+      boundingBox: { x: 0.1, y: 0.1, width: 0.1, height: 0.04 },
+      confidence: 1,
+      source: "pdf_text_layer",
+      uncertain: false,
+      reviewStatus: "candidate",
+    },
+  ];
+
+  const ocr: OcrBlock[] = [
+    {
+      text: "750ML",
+      pageNumber: 1,
+      boundingBox: { x: 0.7, y: 0.8, width: 0.1, height: 0.04 },
+      confidence: 0.95,
+      source: "ocr",
+      uncertain: false,
+      reviewStatus: "candidate",
+    },
+  ];
+
+  const merged = mergeAndDeduplicatePageTextBlocks(embedded, ocr);
+
+  assert.equal(merged.length, 2);
+});

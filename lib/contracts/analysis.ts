@@ -91,6 +91,7 @@ export const AnalysisRequestSchema = z
     creativePayload: CreativePayloadSchema.optional(),
     contentPlatform: z.string().min(1).optional(),
     brandContext: BrandContextSchema.optional(),
+    previousAnalysisRunId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -102,6 +103,36 @@ export const AnalysisStatusSchema = z.enum([
   "FAILED",
 ]);
 export type AnalysisStatus = z.infer<typeof AnalysisStatusSchema>;
+
+export const AnalysisCheckStatusSchema = z.enum([
+  "COMPLETED",
+  "PARTIAL",
+  "FAILED",
+  "SKIPPED",
+  "UNAVAILABLE",
+]);
+export type AnalysisCheckStatus = z.infer<typeof AnalysisCheckStatusSchema>;
+
+export const AnalysisCheckCoverageSchema = z
+  .object({
+    status: AnalysisCheckStatusSchema,
+    reason: z.string().optional(),
+  })
+  .strict();
+export type AnalysisCheckCoverage = z.infer<
+  typeof AnalysisCheckCoverageSchema
+>;
+
+export const AnalysisCoverageSchema = z
+  .object({
+    brandContext: AnalysisCheckCoverageSchema,
+    deterministic: AnalysisCheckCoverageSchema,
+    semanticAI: AnalysisCheckCoverageSchema,
+    visual: AnalysisCheckCoverageSchema,
+    ocr: AnalysisCheckCoverageSchema,
+  })
+  .strict();
+export type AnalysisCoverage = z.infer<typeof AnalysisCoverageSchema>;
 
 export const AnalysisResponseSchema = z
   .object({
@@ -116,6 +147,8 @@ export const AnalysisResponseSchema = z
     fallbackUsed: z.boolean(),
     analysisTimestamp: z.string().datetime({ offset: true }),
     contextWarnings: z.array(z.string()).optional(),
+    coverage: AnalysisCoverageSchema.optional(),
+    previousAnalysisRunId: z.string().min(1).optional(),
     ocrBlocks: z.array(OcrBlockContractSchema).optional(),
     visualSummary: VisualAnalysisSummarySchema.optional(),
   })

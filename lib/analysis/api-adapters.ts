@@ -7,6 +7,7 @@ import {
   FindingLocationSchema,
   OcrBlockContractSchema,
   VisualAnalysisSummarySchema,
+  AnalysisCoverageSchema,
   type AnalysisRequest,
   type EvidenceReference,
   type FindingSeverity,
@@ -40,6 +41,7 @@ const FrontendAnalysisRequestSchema = z
     assetBase64: z.string().min(1).optional(),
     assetMimeType: z.string().trim().min(1).optional(),
     knowledgeSummary: z.array(z.string()).optional(),
+    previousAnalysisRunId: z.string().trim().min(1).optional(),
   })
   .strict()
   .refine(
@@ -125,6 +127,9 @@ export function adaptFrontendRequest(
     ...(frontend.brandVersionId ? { brandVersionId: frontend.brandVersionId } : {}),
     campaignName: frontend.title,
     contentText: frontend.textContent,
+    ...(frontend.previousAnalysisRunId
+      ? { previousAnalysisRunId: frontend.previousAnalysisRunId }
+      : {}),
     ...(frontend.assetBase64 && frontend.assetName
       ? {
           creativePayload: {
@@ -216,6 +221,7 @@ function mapFinding(
     category: mapCategory(finding.category),
     title: finding.issue,
     description: finding.description,
+    explanation: finding.explanation,
     severity: mapSeverity(finding.severity),
     evidenceStatus: mapEvidenceStatus(finding.status),
     detectedValue: finding.detectedValue ?? "",
@@ -266,7 +272,9 @@ export function adaptBackendResponse(
     mapFinding(finding, content),
   );
   const summary =
-    parsed.data.analysisStatus === "PARTIAL"
+    parsed.data.analysisStatus === "FAILED"
+      ? "The governance analysis failed and no clean pass is asserted."
+      : parsed.data.analysisStatus === "PARTIAL"
       ? "Analysis completed with partial visual/brand context coverage."
       : findings.length === 0
         ? "No governance findings were identified."
@@ -280,6 +288,9 @@ export function adaptBackendResponse(
       ? { brandVersionId: parsed.data.brandVersionId }
       : {}),
     analysisRunId: parsed.data.analysisRunId,
+    ...(parsed.data.previousAnalysisRunId
+      ? { previousAnalysisRunId: parsed.data.previousAnalysisRunId }
+      : {}),
     analysisStatus: parsed.data.analysisStatus,
     fallbackUsed: parsed.data.fallbackUsed,
     complianceScore: calculateDisplayScore(findings),
@@ -289,6 +300,7 @@ export function adaptBackendResponse(
     ...(parsed.data.contextWarnings
       ? { contextWarnings: parsed.data.contextWarnings }
       : {}),
+    ...(parsed.data.coverage ? { coverage: parsed.data.coverage } : {}),
     ...(parsed.data.ocrBlocks ? { ocrBlocks: parsed.data.ocrBlocks } : {}),
     ...(parsed.data.visualSummary ? { visualSummary: parsed.data.visualSummary } : {}),
   };
@@ -316,6 +328,7 @@ const FrontendReviewFindingSchema: z.ZodType<ReviewFinding> = z
     ]),
     title: z.string().min(1),
     description: z.string().min(1),
+    explanation: z.string().min(1).optional(),
     severity: z.enum(["high", "medium", "low"]),
     evidenceStatus: z.enum(["supported", "conflicting", "unverified"]),
     detectedValue: z.string(),
@@ -361,6 +374,8 @@ const FrontendAnalysisResponseSchema: z.ZodType<AnalysisResponsePayload> = z.obj
   analysisStatus: z.enum(["COMPLETED", "PARTIAL", "FAILED"]),
   fallbackUsed: z.boolean(),
   contextWarnings: z.array(z.string()).optional(),
+  coverage: AnalysisCoverageSchema.optional(),
+  previousAnalysisRunId: z.string().min(1).optional(),
   ocrBlocks: z.array(OcrBlockContractSchema).optional(),
   visualSummary: VisualAnalysisSummarySchema.optional(),
 }).strict();
