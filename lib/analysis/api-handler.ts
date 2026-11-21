@@ -10,7 +10,11 @@ import {
   UnsupportedDemoBrandError,
 } from "./api-adapters";
 import type { AnalysisOrchestrator } from "./analysis-orchestrator";
-import { BrandNotFoundError } from "../brand-context";
+import {
+  BrandNotFoundError,
+  CrossTenantBrandAccessError,
+  HostedPersistenceUnavailableError,
+} from "../brand-context";
 
 type AnalysisRouteDependencies = {
   orchestrator: Pick<AnalysisOrchestrator, "analyze">;
@@ -106,6 +110,15 @@ export async function handleAnalysisRequest(
     if (error instanceof AnalysisOrchestrationError) {
       if (
         error.stage === "brand-context" &&
+        error.cause instanceof CrossTenantBrandAccessError
+      ) {
+        return {
+          status: 403,
+          body: { error: "The selected brand does not belong to this organisation." },
+        };
+      }
+      if (
+        error.stage === "brand-context" &&
         error.cause instanceof BrandNotFoundError
       ) {
         return {
@@ -140,6 +153,12 @@ export async function handleAnalysisRequest(
         };
       }
       if (error.stage === "brand-context") {
+        if (error.cause instanceof HostedPersistenceUnavailableError) {
+          return {
+            status: 503,
+            body: { error: error.cause.message },
+          };
+        }
         return {
           status: 502,
           body: createFailedAnalysisPayload(frontendRequest, error.stage),

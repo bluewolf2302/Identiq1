@@ -32,6 +32,9 @@ const FrontendAnalysisRequestSchema = z
       "Landing Page",
     ]),
     guidelineCollection: z.string().trim().min(1),
+    brandId: z.string().trim().min(1).optional(),
+    organisationId: z.string().trim().min(1).optional(),
+    brandVersionId: z.string().trim().min(1).optional(),
     textContent: z.string().trim().default(""),
     submissionId: z.string().trim().min(1).optional(),
     assetName: z.string().trim().min(1).optional(),
@@ -105,7 +108,9 @@ export function adaptFrontendRequest(
   options: { createSubmissionId?: () => string } = {},
 ): AnalysisRequest {
   const frontend = parseFrontendAnalysisRequest(input);
+  const explicitBrandId = frontend.brandId?.trim();
   const brandId =
+    explicitBrandId ||
     DEMO_BRAND_BY_GUIDELINE_COLLECTION[frontend.guidelineCollection];
   if (!brandId) {
     throw new UnsupportedDemoBrandError(frontend.guidelineCollection);
@@ -118,6 +123,8 @@ export function adaptFrontendRequest(
   const backendRequest = {
     submissionId,
     brandId,
+    ...(frontend.organisationId ? { organisationId: frontend.organisationId } : {}),
+    ...(frontend.brandVersionId ? { brandVersionId: frontend.brandVersionId } : {}),
     campaignName: frontend.title,
     contentText: frontend.textContent,
     ...(frontend.previousAnalysisRunId
@@ -275,6 +282,11 @@ export function adaptBackendResponse(
 
   return {
     submissionId: parsed.data.submissionId,
+    ...(parsed.data.brandId ? { brandId: parsed.data.brandId } : {}),
+    ...(parsed.data.brandName ? { brandName: parsed.data.brandName } : {}),
+    ...(parsed.data.brandVersionId
+      ? { brandVersionId: parsed.data.brandVersionId }
+      : {}),
     analysisRunId: parsed.data.analysisRunId,
     ...(parsed.data.previousAnalysisRunId
       ? { previousAnalysisRunId: parsed.data.previousAnalysisRunId }
@@ -285,6 +297,9 @@ export function adaptBackendResponse(
     providerUsed: parsed.data.providerUsed,
     summary,
     findings,
+    ...(parsed.data.contextWarnings
+      ? { contextWarnings: parsed.data.contextWarnings }
+      : {}),
     ...(parsed.data.coverage ? { coverage: parsed.data.coverage } : {}),
     ...(parsed.data.ocrBlocks ? { ocrBlocks: parsed.data.ocrBlocks } : {}),
     ...(parsed.data.visualSummary ? { visualSummary: parsed.data.visualSummary } : {}),
@@ -352,9 +367,13 @@ const FrontendAnalysisResponseSchema: z.ZodType<AnalysisResponsePayload> = z.obj
   summary: z.string(),
   findings: z.array(FrontendReviewFindingSchema),
   submissionId: z.string().min(1),
+  brandId: z.string().min(1).optional(),
+  brandName: z.string().min(1).optional(),
+  brandVersionId: z.string().min(1).optional(),
   analysisRunId: z.string().min(1),
   analysisStatus: z.enum(["COMPLETED", "PARTIAL", "FAILED"]),
   fallbackUsed: z.boolean(),
+  contextWarnings: z.array(z.string()).optional(),
   coverage: AnalysisCoverageSchema.optional(),
   previousAnalysisRunId: z.string().min(1).optional(),
   ocrBlocks: z.array(OcrBlockContractSchema).optional(),

@@ -1,186 +1,96 @@
 # Next.js governance API integration
 
-The `/api/analyze` route uses the `AnalysisOrchestrator` for text and
-multimodal governance workflows. The legacy `lib/ai/analyzer.ts` is no longer
-imported by the route and is not an active production analysis path.
+The `/api/analyze`, `/api/brands`, `/api/knowledge`, `/api/guidelines/documents`, and `/api/guidelines/proposals` App Router endpoints connect the Knowledge Hub UI, Guideline PDF Review workflow, New Review Submission workflow, and Review Studio directly to live multi-brand `BrandContext` resolution, private document persistence, and `AnalysisOrchestrator`. The legacy `lib/ai/analyzer.ts` is not imported by any API route.
 
-## Server-side composition
+## Server-side composition & Fail-Closed Hosted Guardrail
 
-`lib/analysis/composition-root.ts` constructs the route's dependencies:
+[`lib/analysis/composition-root.ts`](../lib/analysis/composition-root.ts) constructs per-request orchestration dependencies using [`createBrandKnowledgeRepository()`](../lib/brand-context/repository-factory.ts):
 
-1. `MockBrandKnowledgeRepository`
+1. `MultiBrandKnowledgeRepository` (`SupabaseBrandKnowledgeRepository` when Supabase server credentials are configured, or `FileBackedBrandKnowledgeRepository` locally at `.identiq-data/brand-knowledge-store.json`)
 2. `BrandContextService`
 3. `DeterministicTextGovernanceEngine`
-4. `createAiAnalysisServiceFromEnvironment()` with configurable provider
-   priority and fallback
-5. `AnalysisOrchestrator`
+4. `createAiAnalysisServiceFromEnvironment()` with configurable primary/fallback provider priority (`gemini` / `openrouter`)
+5. `VisualAnalysisOrchestrator` (synced with the resolved `BrandContext` snapshot per request)
+6. `AnalysisOrchestrator`
 
-The composition root is server-only by usage: it is imported by the server
-route, not by client components. Provider clients and credentials remain
-inside the server-side AI providers.
+All provider credentials (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) remain strictly server-side.
 
-The repository is explicitly mock-backed in this phase. The demo submission
-collection `Teralune Brand Identity & AI Guidelines v1.0` maps only to the
-dedicated `demo-brand-teralune` fixture, which is grounded in the local
-fictional brand-guidelines PDF. The generic `brand-001` fixture remains
-available for contract tests but is not associated with Teralune. The fixture
-is not connected to Supabase or live Knowledge Hub data. No Supabase schema or
-migration was added.
+In hosted deployments (`VERCEL=1` or `VERCEL_ENV=production|preview` without `IDENTIQ_ALLOW_LOCAL_FILE_STORE=1`), missing Supabase server credentials (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) fail closed with HTTP `503` (`HostedPersistenceUnavailableError`) instead of writing to ephemeral serverless disk.
 
-The provider factory supports `gemini` and `openrouter` through the
-server-only `AI_PRIMARY_PROVIDER` setting. When both providers are configured,
-the selected provider is called first and the other provider is attempted once
-only after a primary failure. If only one provider is configured, it is treated
-as primary and a successful response reports `fallbackUsed: false`.
+## Knowledge Hub & Brand Management APIs
 
-## Request adapter
+### `GET / POST /api/brands`
 
-`lib/analysis/api-adapters.ts` validates the existing frontend payload before
-mapping it to the Phase 1 `AnalysisRequest` contract:
+- `GET /api/brands` lists tenant-scoped `BrandSummary[]` (including `activeVersionId`, `publishedCount`, `draftCount`, `archivedCount`) plus `persistenceEnvironment` diagnostics (`backend`, `hostedProduction`, `supabaseConfigured`, `hasServiceRoleKey`). Passing `?brandId=...` returns `{ brand, snapshots }`.
+- `POST /api/brands` creates a new workspace brand (`name`, `description`, `website`, `primaryPlatforms`) inside the verified tenant organisation and returns `201`.
 
-- `title` becomes `campaignName`.
-- `textContent` becomes `contentText`.
-- The existing `submissionId` is preserved, or one is generated before
-  orchestration.
-- The Teralune guideline collection is explicitly mapped to the actual
-  `demo-brand-teralune` mock fixture.
-- Aura Botanicals, Northstar Pay and other unrelated seed collections are not
-  mapped to a backend brand and are rejected for new analysis requests.
-- Unknown collections are rejected with HTTP 422 rather than guessed.
-- `knowledgeSummary` is intentionally ignored as evidence. Plain UI strings
-  are not equivalent to approved structured brand records.
-- Asset data is converted into the backend `creativePayload` contract. The
-  visual pipeline validates the file, extracts OCR, runs deterministic visual
-  checks, and optionally invokes vision providers. Durable asset storage is not
-  implemented in this phase.
-- No content platform is inferred from the UI `contentType`.
+### `GET / POST /api/knowledge`
 
-The frontend creates the submission ID before calling the API and uses the
-returned ID as the stored review ID, so the identifier remains stable through
-the request and Review Studio navigation.
+- `GET /api/knowledge?brandId=...&status=all|draft|published|archived` returns `{ brand, entries, snapshots }` for the verified tenant brand.
+- `POST /api/knowledge` executes Zod-validated lifecycle mutations while preserving immutable source provenance (`entryOrigin`, `extractedText`, `sourceDocumentId`, `sourceTitle`, `sourceDocumentVersion`, `pageNumber`, `sectionRef`, `sourceProposalId`, `structuredFacts`, `publishIdempotencyKey`):
+  - `save_draft`: creates or updates a `draft` entry without altering the active published `BrandContext` snapshot.
+  - `save_and_publish`: saves an entry directly as `published` and generates a new immutable brand snapshot (`v1`, `v2`, ...). Supports optional `supersedeEntryId` to archive a superseded published rule atomically.
+  - `publish`: promotes an existing `draft` or `archived` entry to `published` and generates a new snapshot.
+  - `archive`: moves an entry to `archived` (excluding it from future live analyses while keeping historical snapshots intact) and issues a new snapshot if it was previously published.
 
-## Response adapter
+## Guideline PDF Intelligence & Proposal Review APIs
 
-The response adapter validates the canonical `AnalysisResponse` and maps it to
-the existing UI response model. It deliberately:
+### `GET / POST /api/guidelines/documents`
 
-- Maps canonical categories and severities to the current display categories.
-- Preserves descriptions, detected values, expected values, locations,
-  evidence references, and source version IDs.
-- Maps backend evidence statuses without treating unverified findings as
-  supported.
-- Leaves findings unresolved; review resolution is a separate workflow.
-- Uses an honest `"No evidence reference available"` display value when the
-  canonical finding contains no evidence references. It does not invent a
-  source identifier.
-- Derives the legacy display compliance score from finding severities because
-  the Phase 1 response contract does not define a score.
-- Preserves `analysisStatus`, provider name, fallback usage, submission ID, and
-  analysis run ID.
+- `GET /api/guidelines/documents?brandId=...` lists saved durable guideline review sessions (`GuidelineDocumentSession[]`) for the selected brand & tenant, recomputing live conflict checks against currently published entries.
+- `POST /api/guidelines/documents` accepts `multipart/form-data` (`file`, `brandId`, `title`, optional `sourceDocumentVersion`, `enableOcr`, `allowDuplicateCopy`, `retrySessionId`):
+  - Enforces server-side PDF validation (`<= 20 MB`, `.pdf` / `application/pdf`, `%PDF-` magic header, encrypted/0-page/corrupt checks).
+  - Detects same-brand SHA-256 duplicates (`409 DUPLICATE_GUIDELINE_DOCUMENT` returning `{ existingSessionId, existingTitle }`) unless `allowDuplicateCopy=true` or retrying a failed session (`retrySessionId`).
+  - Stores PDF bytes privately in Supabase Storage (`SUPABASE_GUIDELINES_BUCKET`, default `identiq-guidelines`) or local confined storage (`.identiq-data/guideline-files/`), runs isolated page-by-page extraction + selective OCR fallback, classifies candidate proposals, extracts `structuredFacts`, detects conflicts against published brand rules, and persists the durable session.
 
-## Route flow and errors
+### `GET / DELETE /api/guidelines/documents/[documentId]`
 
-`app/api/analyze/route.ts`:
+- `GET` returns `{ session, brand }` with refreshed conflict checks against current published knowledge.
+- `DELETE` cleanly removes a draft/unneeded review session (`discarded`) without modifying or deleting any already-published `KnowledgeEntry` records.
 
-1. Parses JSON safely.
-2. Validates and adapts the frontend request.
-3. Invokes the injected composition-root orchestrator.
-4. Validates and adapts the canonical response.
-5. Returns safe HTTP errors.
+### `GET /api/guidelines/documents/[documentId]/file`
 
-The route never returns a clean success when AI analysis fails. Typical status
-mapping is:
+- Streams the original uploaded PDF bytes only after verifying caller identity and tenant `organisation_id` (`403` on cross-tenant access).
+- Sets `Content-Type: application/pdf`, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`.
 
-- `200`: completed or partial validated analysis.
-- `400`: malformed JSON or frontend request.
-- `404`: no brand context for the selected brand.
-- `422`: no configured demo mapping for the selected collection.
-- `500`: deterministic or unexpected orchestration failure.
-- `502`: invalid final response or repository failure.
-- `503`: AI semantic analysis unavailable when reported through the typed
-  orchestrator error.
+### `POST /api/guidelines/proposals`
 
-Provider credentials and raw provider errors are not included in responses.
+- Handles Zod-validated proposal workflow mutations:
+  - `save_draft`: persists reviewer edits, category overrides, structured metadata edits, or conflict resolution choices on the session without publishing to live context.
+  - `publish`: validates every selected proposal; returns `409 PROPOSAL_CONFLICT` if any direct `"conflict"` lacks an explicit resolution (`keep_existing`, `publish_and_archive_existing`, `publish_coexisting`, `discard_proposal`). Deduplicates via `publishIdempotencyKey`, archives superseded entries when `publish_and_archive_existing` is chosen, writes published entries with full immutable provenance (`entryOrigin: "guideline_pdf"`, `extractedText`, `sourceDocumentId`, `sourceDocumentVersion`, `pageNumber`, `sectionRef`, `sourceProposalId`, `structuredFacts`), and creates a new monotonic `BrandVersionSnapshot`.
+  - `add_manual_proposal`: allows reviewers to manually highlight/capture a passage directly from an extracted PDF page and attach it as a reviewable proposal.
+  - `discard`: marks draft proposals/session discarded while preserving any already-published provenance.
 
-The frontend validates successful response payloads before creating a local
-review, so failed requests do not create a review or navigate to Review Studio.
+### Tenant & Auth Enforcement
 
-## Manual API smoke test
+[`lib/brand-context/server-api-auth.ts`](../lib/brand-context/server-api-auth.ts) verifies `Authorization: Bearer <jwt>` against GoTrue `/auth/v1/user` and checks `organisation_members` in Supabase-configured mode (requiring `owner`, `admin`, `reviewer`, or `demo_reviewer` for mutations), or isolates demo requests to `DEMO_CONFIG.ORGANISATION_ID`. In unconfigured local demo mode (`DEMO_LOCAL`), requests are scoped to the active tenant organisation ID.
 
-Start the application separately:
+## Analysis Request & Response Adapters
 
-```text
-npm run dev
-```
+### Request (`POST /api/analyze`)
 
-With a configured server-side provider, run:
+[`lib/analysis/api-adapters.ts`](../lib/analysis/api-adapters.ts) adapts frontend submissions into canonical `AnalysisRequest`:
 
-```text
-npm run ai:smoke:api
-```
+- Accepts an explicit `brandId` (or legacy `brand` collection selector for Teralune backwards compatibility; unknown brands are never silently mapped to Teralune and fail with `404` or `422`).
+- Preserves optional `organisationId` (overridden by the server-verified tenant ID in `/api/analyze` when auth/org headers are supplied) and optional `brandVersionId`.
+- `title` becomes `campaignName`; `textContent` becomes `contentText`.
+- `knowledgeSummary` is intentionally ignored as authoritative evidence; only structured published Knowledge Hub records from the repository are evaluated.
+- `creativePayload` is validated and passed to the multimodal visual pipeline (OCR + deterministic colour/typography/layout/logo checks + AI Vision).
 
-The smoke test sends a real HTTP POST to `http://localhost:3000/api/analyze`
-using the controlled Teralune sample. It checks response metadata and evidence
-source IDs without printing credentials. It is not part of `npm test` and
-requires the local server and an available configured provider.
+### Response (`POST /api/analyze`)
 
-## Legacy analyzer status
+- Preserves `submissionId`, `analysisRunId`, `brandId`, `brandVersionId`, `analysisStatus` (`"COMPLETED" | "PARTIAL"`), `contextWarnings`, `providerUsed`, `fallbackUsed`, `visualExecution`, and all finding evidence references (`sourceIds`, `versionId`, `documentTitle`, `section`, `pageNumber`, `excerpt`).
+- Returns structured JSON error codes:
+  - `400`: malformed JSON, invalid PDF upload, or Zod validation failure
+  - `401`: missing/invalid auth token when Supabase auth is required
+  - `403`: cross-organisation brand/document access (`CrossTenantBrandAccessError`) or insufficient role
+  - `404`: requested `brandId`, `brandVersionId`, or `documentId` does not exist
+  - `409`: duplicate guideline PDF (`DUPLICATE_GUIDELINE_DOCUMENT`) or unresolved guideline conflict (`PROPOSAL_CONFLICT`)
+  - `422`: unmapped legacy collection name or encrypted/corrupt/0-page PDF (`ENCRYPTED_PDF` / `MALFORMED_PDF`)
+  - `500` / `502` / `503`: deterministic failure, provider failure, AI unavailability, or hosted persistence unconfigured (`HostedPersistenceUnavailableError`)
 
-`lib/ai/analyzer.ts` remains in the repository for compatibility with the
-earlier prototype and is covered by no route import. It should be removed or
-formally deprecated in a future cleanup after downstream references are
-retired. The API route does not use its mock fallback.
+## UI Integration
 
-## Remaining blockers
-
-- The repository is mock-backed until a live Supabase repository and approved
-  source/version model are available.
-- The current UI has no authenticated organization or brand selector.
-- Only the Teralune collection currently has a backend demo fixture mapping.
-- Visual assets are accepted by the UI but are not analyzed or persisted by
-  this phase.
-- The UI still uses localStorage for reviews and review decisions.
-- The display compliance score is derived at the adapter boundary, not a
-  canonical backend score.
-- Image and PDF attachments are processed by the local multimodal pipeline.
-  OCR text is combined with manual copy, visual and text findings are merged,
-  and page/bounding-box metadata is preserved. Durable asset storage remains
-  unavailable until the storage owner supplies its repository interface.
-
-## Review Studio and persistence boundary
-
-The Review Studio consumes the adapted response through the shared
-`IdentiqProvider`. Findings retain evidence references, source versions,
-detector, confidence, corrections, human-review state, reviewer decisions,
-comments, and resolution metadata. Reviewer actions create scoped activity
-events and survive refresh through the existing `identiq_workspace_v2`
-localStorage store.
-
-This is local prototype persistence, not shared or authenticated persistence.
-`lib/supabase/client.ts` exposes only an integration status check and a
-placeholder sync function; it does not connect to Supabase. No production
-database, authentication, organization isolation, or storage implementation
-was available in this branch, so the analysis route continues to use
-`MockBrandKnowledgeRepository`.
-
-## Current cross-owner integration status
-
-- **Knowledge Hub:** the UI stores local `KnowledgeEntry` records, while the
-  analysis pipeline consumes structured `BrandKnowledgeRecord` values from the
-  repository interface. There is no adapter from the local UI entries to that
-  repository, so only the explicit Teralune and contract-test fixtures reach
-  analysis.
-- **Database/auth/storage:** no live repository, migration, authentication, or
-  storage interface is present. The local provider remains functional and
-  explicitly must not be treated as a shared database.
-- **Multimodal processing:** the existing image/PDF validation, OCR,
-  deterministic visual checks, vision fallback, partial-status handling, and
-  page/bounding-box contracts are active and unchanged.
-- **Dashboard/activity:** activity metadata includes finding decisions, while
-  Review Studio uses the existing audit-history builder for review-scoped
-  decisions, comments, corrections, evidence, and resolution snapshots.
-
-Source versions are carried in each finding's evidence references and are not
-replaced when a later guideline version is introduced. Historical reviews retain
-their returned references in local state; a production repository must preserve
-the same immutable evidence fields when its interface becomes available.
+- [`/knowledge-hub`](../app/knowledge-hub/page.tsx): brand selector, `+ Create Brand` modal, Published Version History drawer, `All | Published | Draft | Archived` status filters, `From PDF` vs `Manual` origin badges, immutable `Original PDF Excerpt` comparison when edited, extracted `structuredFacts` & `Expired Promo Date` chips, deep-linked `?brandId=&sourceDocId=&page=` filtering, inline authenticated `Open Source PDF` modal viewer, and the integrated **Guideline PDFs** review tab (`components/GuidelinePdfReviewPanel.tsx`).
+- [`/reviews/new`](../app/reviews/new/page.tsx): Brand / Active Knowledge Version selector showing live published entry counts and active snapshot version, zero-published-rules partial-review notice, one-click `"Attach Teralune Test PDF"` sample action, and submission of `brandId` + `organisationId` + auth token to `/api/analyze`.
+- [`/studio`](../app/studio/page.tsx): displays the review's `brandName`, `brandVersionId` (`v1`, `v2`, ...), source citations (`documentTitle`, `section`, `pageNumber`), `"Inspect source"` deep-link back into Knowledge Hub, and tailored `NO_PUBLISHED_KNOWLEDGE` partial-review notice alongside evidence-backed findings.

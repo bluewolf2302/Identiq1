@@ -47,9 +47,9 @@ Instead of treating a content check as a simple pass/fail result, IdentIQ helps 
 
 | Workspace | Capabilities |
 | --- | --- |
-| **Brand Knowledge Hub** | Organise brand guidelines and governance rules, manage their review status, and draft rules from PDF guidelines. |
-| **Asset Library** | Keep approved brand references such as logos, colour references, photography, and templates together. |
-| **New Review** | Submit campaign copy, images, and PDFs for content and visual checks, including document text extraction and OCR. |
+| **Brand Knowledge Hub** | Organise multi-brand guidelines, ingest guideline PDFs with selective OCR and conflict detection, verify provenance, inspect immutable version snapshots, and publish versioned rules. |
+| **Asset Library** | Preview approved visual references and upload local/session image assets with client-side format and size validation (guideline PDFs and synced visual rules live under Brand Knowledge Hub). |
+| **New Review** | Submit campaign copy, images, and PDFs against the active brand or a selected published Knowledge Hub version snapshot, including document text extraction and OCR. |
 | **Review Studio** | Inspect findings alongside submitted content, review evidence, explore suggested replacements, and record reviewer decisions and comments. |
 | **Approvals** | Work through pending reviews and approve content or request changes. |
 | **Activity & Reports** | Follow review activity, view compliance summaries, print review dossiers, and export structured CSV data. |
@@ -115,9 +115,9 @@ Add the credentials for the integrations you intend to use. The example file doc
 - AI provider and model configuration
 - Gemini or OpenRouter API credentials
 - Supabase project URL and publishable/anonymous key
-- Server-side Supabase secret key for protected server operations
+- Server-side Supabase secret key (`SUPABASE_SERVICE_ROLE_KEY`) and private Storage bucket (`SUPABASE_GUIDELINES_BUCKET`, default `identiq-guidelines`) for protected server operations and hosted guideline PDF persistence
 
-AI and shared-workspace features need their corresponding valid credentials. Keep secrets in your local environment or deployment provider; **never commit `.env.local` or expose server-side keys in browser code.**
+AI and shared-workspace features need their corresponding valid credentials. Hosted deployments fail closed with HTTP `503` if durable Supabase persistence is not configured. Keep secrets in your local environment or deployment provider; **never commit `.env.local` or expose server-side keys in browser code.**
 
 ### 4. Start the development server
 

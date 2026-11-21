@@ -5,10 +5,18 @@ import {
   ActivityEvent,
   BrandAsset,
   KnowledgeEntry,
+  KnowledgeSection,
+  KnowledgeVersionSnapshot,
   ReviewFinding,
   ReviewStatus,
   ReviewSubmission,
+  WorkspaceBrand,
 } from "@/lib/types";
+import type {
+  BrandVersionSnapshot as ContextBrandVersionSnapshot,
+  ManagedKnowledgeEntry,
+  WorkspaceBrandRecord,
+} from "@/lib/brand-context/types";
 import type { ReviewDecision } from "@/lib/contracts/workflow";
 import {
   buildFindingDecisionPatch,
@@ -17,7 +25,6 @@ import {
 import {
   INITIAL_ACTIVITY,
   INITIAL_ASSETS,
-  INITIAL_KNOWLEDGE,
   INITIAL_REVIEWS,
 } from "@/lib/seed-data";
 import {
@@ -62,6 +69,8 @@ import {
   ViewerProfile,
 } from "@/lib/viewer-profile";
 import { DEMO_CONFIG } from "@/lib/demo/config";
+import { getAssetPersistenceNotice } from "@/lib/asset-validation";
+import { LATEST_KNOWLEDGE_VERSION_ID } from "@/lib/knowledge-versions";
 
 interface ToastMessage {
   id: string;
@@ -84,8 +93,17 @@ export interface UserOrganisationMembership {
 }
 
 export interface IdentiqContextValue {
+  hydrated: boolean;
   reviews: ReviewSubmission[];
   knowledge: KnowledgeEntry[];
+  workspaceBrands: WorkspaceBrand[];
+  selectedBrandId: string | null;
+  selectedBrand: WorkspaceBrand | null;
+  selectedBrandVersionId: string;
+  versionSnapshots: KnowledgeVersionSnapshot[];
+  knowledgeLoading: boolean;
+  knowledgeMutating: boolean;
+  knowledgeError: string | null;
   assets: BrandAsset[];
   activities: ActivityEvent[];
   settings: WorkspaceSettings;
@@ -111,6 +129,44 @@ export interface IdentiqContextValue {
   switchOrganisation: (orgId: string) => Promise<void>;
   setAuthContext: (token: string | null, orgId: string | null) => void;
   reloadFromPersistence: () => Promise<void>;
+  refreshBrands: (overrideOrgId?: string) => Promise<void>;
+  selectBrand: (targetBrandId: string) => Promise<void>;
+  selectBrandVersion: (versionId: string) => void;
+  createWorkspaceBrand: (input: {
+    brandName: string;
+    description?: string;
+    website?: string;
+    profileSummary?: string;
+    voiceAndToneSummary?: string;
+  }) => Promise<WorkspaceBrand>;
+  saveKnowledgeEntry: (input: {
+    id?: string;
+    brandId?: string;
+    section: KnowledgeSection;
+    title: string;
+    content: string;
+    preferredTerm?: string;
+    avoidTerm?: string;
+    hexCodes?: string[];
+    fontFamily?: string;
+    supportingEvidence?: string;
+    restrictions?: string[];
+    severity?: "high" | "medium" | "low";
+    sourceDocumentId?: string;
+    sourceTitle?: string;
+    sourceDocumentVersion?: string;
+    sectionRef?: string;
+    pageNumber?: number;
+    versionId?: string;
+    publishImmediately?: boolean;
+  }) => Promise<KnowledgeEntry>;
+  publishKnowledgeEntry: (entryId: string, note?: string) => Promise<KnowledgeEntry>;
+  archiveKnowledgeEntry: (entryId: string) => Promise<KnowledgeEntry>;
+  getKnowledgeRequestContext: () => {
+    organisationId: string;
+    headers: Record<string, string>;
+  };
+  reloadSelectedBrandKnowledge: () => Promise<void>;
   setActiveReviewId: (id: string) => void;
   addReview: (review: ReviewSubmission, brandId?: string) => Promise<void>;
   updateReviewStatus: (
@@ -522,9 +578,107 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
 
 const IdentiqContext = createContext<IdentiqContextValue | null>(null);
 
+function mapManagedEntryToUiEntry(entry: ManagedKnowledgeEntry): KnowledgeEntry {
+  return {
+    id: entry.id,
+    brandId: entry.brandId,
+    organisationId: entry.organisationId,
+    section: entry.section,
+    kind: entry.kind,
+    title: entry.title,
+    content: entry.content,
+    entryOrigin: entry.entryOrigin,
+    extractedText: entry.extractedText,
+    sourceProposalId: entry.sourceProposalId,
+    structuredFacts: entry.structuredFacts,
+    preferredTerm: entry.preferredTerm,
+    avoidTerm: entry.avoidTerm,
+    hexCodes: entry.hexCodes,
+    fontFamily: entry.fontFamily,
+    supportingEvidence: entry.supportingEvidence,
+    restrictions: entry.restrictions,
+    severity: entry.severity,
+    status:
+      entry.publicationStatus === "published"
+        ? "Approved"
+        : entry.publicationStatus === "archived"
+        ? "Archived"
+        : "Pending Review",
+    publicationStatus: entry.publicationStatus,
+    versionNumber: entry.versionNumber,
+    versionId: entry.versionId,
+    sourceDocumentId: entry.sourceDocumentId,
+    sourceTitle: entry.sourceTitle,
+    sourceDocumentVersion: entry.sourceDocumentVersion,
+    sectionRef: entry.sectionRef,
+    pageNumber: entry.pageNumber,
+    createdAt: entry.createdAt,
+    publishedAt: entry.publishedAt,
+    archivedAt: entry.archivedAt,
+    updatedAt: entry.updatedAt.split("T")[0] || entry.updatedAt,
+    owner: entry.owner,
+  };
+}
+
+function mapSnapshotToUiSnapshot(
+  snap: ContextBrandVersionSnapshot
+): KnowledgeVersionSnapshot {
+  const mappedEntries = Array.isArray(snap.entries)
+    ? snap.entries.map(mapManagedEntryToUiEntry)
+    : [];
+  return {
+    snapshotId: snap.snapshotId,
+    brandId: snap.brandId,
+    organisationId: snap.organisationId,
+    versionId: snap.versionId,
+    versionNumber: snap.versionNumber,
+    publishedAt: snap.publishedAt,
+    publishedBy: snap.publishedBy,
+    entryCount: mappedEntries.length,
+    note: snap.note,
+    entries: mappedEntries,
+  };
+}
+
+function mapBrandRecordToWorkspaceBrand(
+  brand: WorkspaceBrandRecord
+): WorkspaceBrand {
+  return {
+    brandId: brand.brandId,
+    organisationId: brand.organisationId,
+    brandName: brand.brandName,
+    description: brand.description,
+    website: brand.website,
+    approved: brand.approved,
+    isSample: brand.isSample,
+    latestPublishedVersion: brand.latestPublishedVersion,
+    publishedEntryCount: brand.publishedEntryCount,
+    draftEntryCount: brand.draftEntryCount,
+    archivedEntryCount: brand.archivedEntryCount,
+    updatedAt: brand.updatedAt,
+  };
+}
+
 export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   const [reviews, setReviews] = useState<ReviewSubmission[]>(INITIAL_REVIEWS);
-  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>(INITIAL_KNOWLEDGE);
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
+  const [workspaceBrands, setWorkspaceBrands] = useState<WorkspaceBrand[]>([]);
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
+  const [selectedBrandVersionId, setSelectedBrandVersionId] = useState<string>(
+    LATEST_KNOWLEDGE_VERSION_ID
+  );
+  const [versionSnapshots, setVersionSnapshots] = useState<KnowledgeVersionSnapshot[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeMutating, setKnowledgeMutating] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  const knowledgeReqGenRef = useRef(0);
+  const knowledgeAbortRef = useRef<AbortController | null>(null);
+  const brandsReqGenRef = useRef(0);
+  const brandsAbortRef = useRef<AbortController | null>(null);
+  const selectedBrandIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedBrandIdRef.current = selectedBrandId;
+  }, [selectedBrandId]);
   const [assets, setAssets] = useState<BrandAsset[]>(INITIAL_ASSETS);
   const [activities, setActivities] = useState<ActivityEvent[]>(INITIAL_ACTIVITY);
   const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_SETTINGS);
@@ -783,7 +937,6 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
                 setReviews(parsed.reviews);
                 setActiveReviewId(parsed.reviews[0].id);
               }
-              if (Array.isArray(parsed.knowledge)) setKnowledge(parsed.knowledge);
               if (Array.isArray(parsed.assets)) setAssets(parsed.assets);
               if (Array.isArray(parsed.activities)) setActivities(parsed.activities);
               if (parsed.settings) {
@@ -843,7 +996,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ reviews, knowledge, assets, activities, settings })
+        JSON.stringify({ reviews, assets, activities, settings })
       );
     } catch {
       try {
@@ -863,7 +1016,6 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           STORAGE_KEY,
           JSON.stringify({
             reviews: compactReviews,
-            knowledge,
             assets,
             activities,
             settings,
@@ -873,7 +1025,7 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
         // Ignore quota issues in restricted browsers
       }
     }
-  }, [reviews, knowledge, assets, activities, settings, hydrated, persistenceMode]);
+  }, [reviews, assets, activities, settings, hydrated, persistenceMode]);
 
   // Load from Supabase when in AUTHENTICATED_SUPABASE or SHARED_DEMO mode
   const reloadFromPersistence = useCallback(async () => {
@@ -1866,50 +2018,729 @@ const prevActivities = activities;
     }
   };
 
-  // Client-state workflows for Aditi (Knowledge & Assets preserved untouched)
-  const upsertKnowledgeEntry = (entry: KnowledgeEntry) => {
-    const exists = knowledge.some((k) => k.id === entry.id);
-    setKnowledge((prev) =>
-      exists ? prev.map((k) => (k.id === entry.id ? entry : k)) : [entry, ...prev]
-    );
-    logActivity({
-      actor: settings.reviewerName,
-      action: exists ? "updated knowledge entry:" : "added knowledge entry:",
-      target: entry.title,
-      type: "knowledge_updated",
+  const getEffectiveOrgId = useCallback(
+    (overrideOrgId?: string) => {
+      if (overrideOrgId) return overrideOrgId;
+      if (persistenceMode === "AUTHENTICATED_SUPABASE" && organisationId) {
+        return organisationId;
+      }
+      if (persistenceMode === "SHARED_DEMO") {
+        return DEMO_CONFIG.ORGANISATION_ID;
+      }
+      return "local-org";
+    },
+    [persistenceMode, organisationId]
+  );
+
+  const buildKnowledgeAuthHeaders = useCallback((): Record<string, string> => {
+    const token = session?.accessToken || getClientAuthToken();
+    if (token && persistenceMode === "AUTHENTICATED_SUPABASE") {
+      return { Authorization: `Bearer ${token}` };
+    }
+    return {};
+  }, [session?.accessToken, persistenceMode]);
+
+  const loadKnowledgeForBrand = useCallback(
+    async (targetBrandId: string, overrideOrgId?: string) => {
+      if (!targetBrandId) return;
+      const reqGen = ++knowledgeReqGenRef.current;
+      knowledgeAbortRef.current?.abort();
+      const controller = new AbortController();
+      knowledgeAbortRef.current = controller;
+
+      const orgParam = getEffectiveOrgId(overrideOrgId);
+      setKnowledgeLoading(true);
+      setKnowledgeError(null);
+      try {
+        const params = new URLSearchParams({
+          brandId: targetBrandId,
+          status: "all",
+          organisationId: orgParam,
+        });
+        const res = await fetch(`/api/knowledge?${params.toString()}`, {
+          headers: buildKnowledgeAuthHeaders(),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          brand?: WorkspaceBrandRecord;
+          entries?: ManagedKnowledgeEntry[];
+          snapshots?: ContextBrandVersionSnapshot[];
+        };
+        if (knowledgeReqGenRef.current !== reqGen) return;
+        if (!res.ok) {
+          throw new Error(body.error || "Failed to load brand knowledge.");
+        }
+        const entries = Array.isArray(body.entries)
+          ? body.entries.map(mapManagedEntryToUiEntry)
+          : [];
+        const snapshots = Array.isArray(body.snapshots)
+          ? body.snapshots.map(mapSnapshotToUiSnapshot)
+          : [];
+        setKnowledge(entries);
+        setVersionSnapshots(snapshots);
+        setSelectedBrandVersionId((currentVer) =>
+          currentVer === LATEST_KNOWLEDGE_VERSION_ID ||
+          snapshots.some((s) => s.versionId === currentVer)
+            ? currentVer
+            : LATEST_KNOWLEDGE_VERSION_ID
+        );
+        if (body.brand) {
+          const mappedBrand = mapBrandRecordToWorkspaceBrand(body.brand);
+          setWorkspaceBrands((prev) => {
+            const exists = prev.some((b) => b.brandId === mappedBrand.brandId);
+            return exists
+              ? prev.map((b) =>
+                  b.brandId === mappedBrand.brandId ? mappedBrand : b
+                )
+              : [mappedBrand, ...prev];
+          });
+        }
+      } catch (err) {
+        if (
+          (err instanceof DOMException && err.name === "AbortError") ||
+          knowledgeReqGenRef.current !== reqGen
+        ) {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Failed to load brand knowledge.";
+        setKnowledgeError(message);
+      } finally {
+        if (knowledgeReqGenRef.current === reqGen) {
+          setKnowledgeLoading(false);
+        }
+      }
+    },
+    [buildKnowledgeAuthHeaders, getEffectiveOrgId]
+  );
+
+  const refreshBrands = useCallback(
+    async (overrideOrgId?: string) => {
+      const refreshGen = ++brandsReqGenRef.current;
+      brandsAbortRef.current?.abort();
+      const controller = new AbortController();
+      brandsAbortRef.current = controller;
+
+      if (
+        persistenceMode === "CONFIGURED_UNAUTHENTICATED" ||
+        persistenceMode === "AUTHENTICATED_NO_ORGANISATION"
+      ) {
+        knowledgeReqGenRef.current += 1;
+        knowledgeAbortRef.current?.abort();
+        setWorkspaceBrands([]);
+        setSelectedBrandId(null);
+        setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+        setKnowledge([]);
+        setVersionSnapshots([]);
+        setKnowledgeError(null);
+        setKnowledgeLoading(false);
+        return;
+      }
+
+      const orgParam = getEffectiveOrgId(overrideOrgId);
+      setKnowledgeLoading(true);
+      setKnowledgeError(null);
+      try {
+        const params = new URLSearchParams({ organisationId: orgParam });
+        const res = await fetch(`/api/brands?${params.toString()}`, {
+          headers: buildKnowledgeAuthHeaders(),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          brands?: WorkspaceBrandRecord[];
+        };
+        if (brandsReqGenRef.current !== refreshGen) return;
+        if (!res.ok) {
+          throw new Error(body.error || "Failed to load brands.");
+        }
+        const brands = Array.isArray(body.brands)
+          ? body.brands.map(mapBrandRecordToWorkspaceBrand)
+          : [];
+        setWorkspaceBrands(brands);
+
+        const storedBrandId =
+          typeof window !== "undefined"
+            ? localStorage.getItem(BRAND_STORAGE_KEY)
+            : null;
+        const currentSelected = selectedBrandIdRef.current;
+        const preferred =
+          brands.find((b) => b.brandId === currentSelected) ||
+          brands.find((b) => b.brandId === storedBrandId) ||
+          brands.find((b) => !b.isSample) ||
+          brands[0] ||
+          null;
+
+        if (preferred) {
+          if (preferred.brandId !== currentSelected) {
+            setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+            setKnowledge([]);
+            setVersionSnapshots([]);
+          }
+          setSelectedBrandId(preferred.brandId);
+          if (typeof window !== "undefined") {
+            localStorage.setItem(BRAND_STORAGE_KEY, preferred.brandId);
+          }
+          if (
+            persistenceMode === "AUTHENTICATED_SUPABASE" &&
+            !preferred.isSample &&
+            preferred.organisationId === organisationId
+          ) {
+            tenancyManager.updateState({
+              brandId: preferred.brandId,
+              brandName: preferred.brandName,
+            });
+          }
+          await loadKnowledgeForBrand(preferred.brandId, orgParam);
+        } else {
+          setSelectedBrandId(null);
+          setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+          setKnowledge([]);
+          setVersionSnapshots([]);
+          setKnowledgeLoading(false);
+        }
+      } catch (err) {
+        if (
+          (err instanceof DOMException && err.name === "AbortError") ||
+          brandsReqGenRef.current !== refreshGen
+        ) {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Failed to load brands.";
+        setKnowledgeError(message);
+        setKnowledgeLoading(false);
+      }
+    },
+    [
+      persistenceMode,
+      organisationId,
+      getEffectiveOrgId,
+      buildKnowledgeAuthHeaders,
+      tenancyManager,
+      loadKnowledgeForBrand,
+    ]
+  );
+
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        void refreshBrands();
+      }
     });
-    notify(exists ? "Knowledge entry updated" : "Knowledge entry added");
+    return () => {
+      cancelled = true;
+    };
+    // Refresh brand registry when hydration completes or tenancy mode changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, persistenceMode, organisationId]);
+
+  const selectBrand = useCallback(
+    async (targetBrandId: string) => {
+      if (!targetBrandId) return;
+      const isChangingBrand = targetBrandId !== selectedBrandIdRef.current;
+      selectedBrandIdRef.current = targetBrandId;
+      const target = workspaceBrands.find((b) => b.brandId === targetBrandId);
+      setSelectedBrandId(targetBrandId);
+      setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+      if (isChangingBrand) {
+        setKnowledge([]);
+        setVersionSnapshots([]);
+      }
+      setKnowledgeError(null);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(BRAND_STORAGE_KEY, targetBrandId);
+      }
+      if (
+        target &&
+        persistenceMode === "AUTHENTICATED_SUPABASE" &&
+        !target.isSample &&
+        target.organisationId === organisationId
+      ) {
+        tenancyManager.updateState({
+          brandId: target.brandId,
+          brandName: target.brandName,
+        });
+      }
+      await loadKnowledgeForBrand(targetBrandId);
+    },
+    [
+      workspaceBrands,
+      persistenceMode,
+      organisationId,
+      tenancyManager,
+      loadKnowledgeForBrand,
+    ]
+  );
+
+  const selectBrandVersion = useCallback((versionId: string) => {
+    setSelectedBrandVersionId(versionId.trim() || LATEST_KNOWLEDGE_VERSION_ID);
+  }, []);
+
+  const createWorkspaceBrand = useCallback(
+    async (input: {
+      brandName: string;
+      description?: string;
+      website?: string;
+      profileSummary?: string;
+      voiceAndToneSummary?: string;
+    }): Promise<WorkspaceBrand> => {
+      const orgParam = getEffectiveOrgId();
+      setKnowledgeMutating(true);
+      setKnowledgeError(null);
+      try {
+        const res = await fetch("/api/brands", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildKnowledgeAuthHeaders(),
+          },
+          body: JSON.stringify({
+            ...input,
+            organisationId: orgParam,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          brand?: WorkspaceBrandRecord;
+        };
+        if (!res.ok || !body.brand) {
+          throw new Error(body.error || "Failed to create brand.");
+        }
+        const created = mapBrandRecordToWorkspaceBrand(body.brand);
+        setWorkspaceBrands((prev) => [created, ...prev]);
+        setSelectedBrandId(created.brandId);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(BRAND_STORAGE_KEY, created.brandId);
+        }
+        if (
+          persistenceMode === "AUTHENTICATED_SUPABASE" &&
+          created.organisationId === organisationId
+        ) {
+          tenancyManager.updateState({
+            brandId: created.brandId,
+            brandName: created.brandName,
+          });
+        }
+        setKnowledge([]);
+        setVersionSnapshots([]);
+        logActivity({
+          actor: settings.reviewerName,
+          action: "created brand profile:",
+          target: created.brandName,
+          type: "knowledge_updated",
+        });
+        notify(`Created brand "${created.brandName}"`);
+        return created;
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Failed to create brand.";
+        setKnowledgeError(msg);
+        notify(msg, "error");
+        throw err instanceof Error ? err : new Error(msg);
+      } finally {
+        setKnowledgeMutating(false);
+      }
+    },
+    [
+      getEffectiveOrgId,
+      buildKnowledgeAuthHeaders,
+      persistenceMode,
+      organisationId,
+      tenancyManager,
+      settings.reviewerName,
+      notify,
+    ]
+  );
+
+  const getKnowledgeRequestContext = useCallback(() => {
+    return {
+      organisationId: getEffectiveOrgId(),
+      headers: buildKnowledgeAuthHeaders(),
+    };
+  }, [getEffectiveOrgId, buildKnowledgeAuthHeaders]);
+
+  const reloadSelectedBrandKnowledge = useCallback(async () => {
+    if (!selectedBrandId) return;
+    await loadKnowledgeForBrand(selectedBrandId);
+  }, [selectedBrandId, loadKnowledgeForBrand]);
+
+  const saveKnowledgeEntry = useCallback(
+    async (input: {
+      id?: string;
+      brandId?: string;
+      section: KnowledgeSection;
+      title: string;
+      content: string;
+      preferredTerm?: string;
+      avoidTerm?: string;
+      hexCodes?: string[];
+      fontFamily?: string;
+      supportingEvidence?: string;
+      restrictions?: string[];
+      severity?: "high" | "medium" | "low";
+      sourceDocumentId?: string;
+      sourceTitle?: string;
+      sourceDocumentVersion?: string;
+      sectionRef?: string;
+      pageNumber?: number;
+      versionId?: string;
+      publishImmediately?: boolean;
+    }): Promise<KnowledgeEntry> => {
+      const targetBrandId = input.brandId || selectedBrandId;
+      if (!targetBrandId) {
+        throw new Error("Please select or create a brand before saving rules.");
+      }
+      const orgParam = getEffectiveOrgId();
+      const existingEntry = input.id
+        ? knowledge.find((k) => k.id === input.id)
+        : undefined;
+      setKnowledgeMutating(true);
+      setKnowledgeError(null);
+      try {
+        const res = await fetch("/api/knowledge", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildKnowledgeAuthHeaders(),
+          },
+          body: JSON.stringify({
+            action: input.publishImmediately ? "save_and_publish" : "save_draft",
+            ...(input.id ? { id: input.id } : {}),
+            brandId: targetBrandId,
+            organisationId: orgParam,
+            section: input.section,
+            title: input.title,
+            content: input.content,
+            ...(existingEntry?.entryOrigin
+              ? { entryOrigin: existingEntry.entryOrigin }
+              : {}),
+            ...(input.preferredTerm ? { preferredTerm: input.preferredTerm } : {}),
+            ...(input.avoidTerm ? { avoidTerm: input.avoidTerm } : {}),
+            ...(input.hexCodes && input.hexCodes.length > 0
+              ? { hexCodes: input.hexCodes }
+              : {}),
+            ...(input.fontFamily ? { fontFamily: input.fontFamily } : {}),
+            ...(input.supportingEvidence
+              ? { supportingEvidence: input.supportingEvidence }
+              : {}),
+            ...(input.restrictions && input.restrictions.length > 0
+              ? { restrictions: input.restrictions }
+              : {}),
+            ...(input.severity ? { severity: input.severity } : {}),
+            ...(input.sourceDocumentId
+              ? { sourceDocumentId: input.sourceDocumentId }
+              : {}),
+            ...(input.sourceTitle ? { sourceTitle: input.sourceTitle } : {}),
+            ...(input.sourceDocumentVersion || existingEntry?.sourceDocumentVersion
+              ? {
+                  sourceDocumentVersion:
+                    input.sourceDocumentVersion ||
+                    existingEntry?.sourceDocumentVersion,
+                }
+              : {}),
+            ...(input.sectionRef ? { sectionRef: input.sectionRef } : {}),
+            ...(input.pageNumber ? { pageNumber: input.pageNumber } : {}),
+            ...(input.versionId ? { versionId: input.versionId } : {}),
+            owner: settings.reviewerName,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          entry?: ManagedKnowledgeEntry;
+          brand?: WorkspaceBrandRecord;
+          snapshots?: ContextBrandVersionSnapshot[];
+        };
+        if (!res.ok || !body.entry) {
+          throw new Error(body.error || "Failed to save knowledge entry.");
+        }
+
+        const saved = mapManagedEntryToUiEntry(body.entry);
+        setKnowledge((prev) => {
+          const exists = prev.some((k) => k.id === saved.id);
+          return exists
+            ? prev.map((k) => (k.id === saved.id ? saved : k))
+            : [saved, ...prev];
+        });
+        if (body.brand) {
+          const mappedBrand = mapBrandRecordToWorkspaceBrand(body.brand);
+          setWorkspaceBrands((prev) =>
+            prev.map((b) =>
+              b.brandId === mappedBrand.brandId ? mappedBrand : b
+            )
+          );
+        }
+        if (Array.isArray(body.snapshots)) {
+          setVersionSnapshots(body.snapshots.map(mapSnapshotToUiSnapshot));
+        }
+
+        logActivity({
+          actor: settings.reviewerName,
+          action: input.publishImmediately
+            ? "published knowledge entry:"
+            : input.id
+            ? "updated draft knowledge entry:"
+            : "saved draft knowledge entry:",
+          target: saved.title,
+          type: "knowledge_updated",
+        });
+        notify(
+          input.publishImmediately
+            ? `Published "${saved.title}" (${saved.versionId})`
+            : `Saved draft "${saved.title}"`
+        );
+        return saved;
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Failed to save knowledge entry.";
+        setKnowledgeError(msg);
+        notify(msg, "error");
+        throw err instanceof Error ? err : new Error(msg);
+      } finally {
+        setKnowledgeMutating(false);
+      }
+    },
+    [
+      selectedBrandId,
+      knowledge,
+      getEffectiveOrgId,
+      buildKnowledgeAuthHeaders,
+      settings.reviewerName,
+      notify,
+    ]
+  );
+
+  const publishKnowledgeEntry = useCallback(
+    async (entryId: string, note?: string): Promise<KnowledgeEntry> => {
+      const target = knowledge.find((k) => k.id === entryId);
+      const targetBrandId = target?.brandId || selectedBrandId;
+      if (!targetBrandId) {
+        throw new Error("No active brand selected for publishing.");
+      }
+      const orgParam = getEffectiveOrgId();
+      setKnowledgeMutating(true);
+      setKnowledgeError(null);
+      try {
+        const res = await fetch("/api/knowledge", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildKnowledgeAuthHeaders(),
+          },
+          body: JSON.stringify({
+            action: "publish",
+            entryId,
+            brandId: targetBrandId,
+            organisationId: orgParam,
+            actor: settings.reviewerName,
+            ...(note?.trim() ? { note: note.trim() } : {}),
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          entry?: ManagedKnowledgeEntry;
+          snapshot?: ContextBrandVersionSnapshot;
+          brand?: WorkspaceBrandRecord;
+          snapshots?: ContextBrandVersionSnapshot[];
+        };
+        if (!res.ok || !body.entry) {
+          throw new Error(body.error || "Failed to publish knowledge entry.");
+        }
+        const published = mapManagedEntryToUiEntry(body.entry);
+        setKnowledge((prev) =>
+          prev.map((k) => (k.id === published.id ? published : k))
+        );
+        if (body.brand) {
+          const mappedBrand = mapBrandRecordToWorkspaceBrand(body.brand);
+          setWorkspaceBrands((prev) =>
+            prev.map((b) =>
+              b.brandId === mappedBrand.brandId ? mappedBrand : b
+            )
+          );
+        }
+        if (Array.isArray(body.snapshots)) {
+          setVersionSnapshots(body.snapshots.map(mapSnapshotToUiSnapshot));
+        }
+        logActivity({
+          actor: settings.reviewerName,
+          action: "published knowledge entry:",
+          target: published.title,
+          type: "knowledge_updated",
+        });
+        notify(
+          `Published "${published.title}" (${
+            body.snapshot?.versionId || published.versionId || "latest"
+          })`
+        );
+        return published;
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Failed to publish knowledge entry.";
+        setKnowledgeError(msg);
+        notify(msg, "error");
+        throw err instanceof Error ? err : new Error(msg);
+      } finally {
+        setKnowledgeMutating(false);
+      }
+    },
+    [
+      knowledge,
+      selectedBrandId,
+      getEffectiveOrgId,
+      buildKnowledgeAuthHeaders,
+      settings.reviewerName,
+      notify,
+    ]
+  );
+
+  const archiveKnowledgeEntry = useCallback(
+    async (entryId: string): Promise<KnowledgeEntry> => {
+      const target = knowledge.find((k) => k.id === entryId);
+      const targetBrandId = target?.brandId || selectedBrandId;
+      if (!targetBrandId) {
+        throw new Error("No active brand selected for archiving.");
+      }
+      const orgParam = getEffectiveOrgId();
+      setKnowledgeMutating(true);
+      setKnowledgeError(null);
+      try {
+        const res = await fetch("/api/knowledge", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildKnowledgeAuthHeaders(),
+          },
+          body: JSON.stringify({
+            action: "archive",
+            entryId,
+            brandId: targetBrandId,
+            organisationId: orgParam,
+            actor: settings.reviewerName,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          entry?: ManagedKnowledgeEntry;
+          brand?: WorkspaceBrandRecord;
+        };
+        if (!res.ok || !body.entry) {
+          throw new Error(body.error || "Failed to archive knowledge entry.");
+        }
+        const archived = mapManagedEntryToUiEntry(body.entry);
+        setKnowledge((prev) =>
+          prev.map((k) => (k.id === archived.id ? archived : k))
+        );
+        if (body.brand) {
+          const mappedBrand = mapBrandRecordToWorkspaceBrand(body.brand);
+          setWorkspaceBrands((prev) =>
+            prev.map((b) =>
+              b.brandId === mappedBrand.brandId ? mappedBrand : b
+            )
+          );
+        }
+        logActivity({
+          actor: settings.reviewerName,
+          action: "archived knowledge entry:",
+          target: archived.title,
+          type: "knowledge_updated",
+        });
+        notify(`Archived "${archived.title}"`, "info");
+        return archived;
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Failed to archive knowledge entry.";
+        setKnowledgeError(msg);
+        notify(msg, "error");
+        throw err instanceof Error ? err : new Error(msg);
+      } finally {
+        setKnowledgeMutating(false);
+      }
+    },
+    [
+      knowledge,
+      selectedBrandId,
+      getEffectiveOrgId,
+      buildKnowledgeAuthHeaders,
+      settings.reviewerName,
+      notify,
+    ]
+  );
+
+  // Backwards-compatible wrappers delegating to async persistence
+  const upsertKnowledgeEntry = (entry: KnowledgeEntry) => {
+    void saveKnowledgeEntry({
+      id: entry.id.startsWith("kb-") && !knowledge.some((k) => k.id === entry.id)
+        ? undefined
+        : entry.id,
+      brandId: entry.brandId || selectedBrandId || undefined,
+      section: entry.section,
+      title: entry.title,
+      content: entry.content,
+      preferredTerm: entry.preferredTerm,
+      avoidTerm: entry.avoidTerm,
+      hexCodes: entry.hexCodes,
+      fontFamily: entry.fontFamily,
+      sourceDocumentId: entry.sourceDocumentId,
+      sourceTitle: entry.sourceTitle,
+      sectionRef: entry.sectionRef,
+      pageNumber: entry.pageNumber,
+      versionId: entry.versionId,
+      publishImmediately: entry.status === "Approved",
+    }).catch(() => {});
   };
 
   const deleteKnowledgeEntry = (id: string) => {
-    setKnowledge((prev) => prev.filter((k) => k.id !== id));
-    notify("Knowledge entry removed", "info");
+    void archiveKnowledgeEntry(id).catch(() => {});
   };
 
   const toggleKnowledgeStatus = (id: string) => {
-    setKnowledge((prev) =>
-      prev.map((k) =>
-        k.id === id
-          ? {
-              ...k,
-              status: k.status === "Approved" ? "Pending Review" : "Approved",
-              updatedAt: new Date().toISOString().split("T")[0],
-            }
-          : k
-      )
-    );
-    notify("Knowledge verification status updated");
+    const target = knowledge.find((k) => k.id === id);
+    if (!target) return;
+    if (target.status === "Approved") {
+      void saveKnowledgeEntry({
+        id: target.id,
+        brandId: target.brandId,
+        section: target.section,
+        title: target.title,
+        content: target.content,
+        preferredTerm: target.preferredTerm,
+        avoidTerm: target.avoidTerm,
+        hexCodes: target.hexCodes,
+        fontFamily: target.fontFamily,
+        publishImmediately: false,
+      }).catch(() => {});
+    } else {
+      void publishKnowledgeEntry(id).catch(() => {});
+    }
   };
 
   const addAsset = (asset: BrandAsset) => {
+    const notice = getAssetPersistenceNotice(persistenceMode);
     setAssets((prev) => [asset, ...prev]);
     logActivity({
       actor: settings.reviewerName,
-      action: "uploaded brand asset:",
+      action:
+        notice.scope === "session_only"
+          ? "added session brand asset:"
+          : "uploaded brand asset:",
       target: asset.name,
       type: "asset_uploaded",
     });
-    notify(`Added "${asset.name}" to Asset Library`);
+    notify(
+      `Added "${asset.name}" ${notice.addToastSuffix}`,
+      notice.scope === "session_only" ? "info" : "success"
+    );
   };
 
   const deleteAsset = (id: string) => {
@@ -1955,7 +2786,6 @@ const prevActivities = activities;
     } else {
       localStorage.removeItem(STORAGE_KEY);
       setReviews(INITIAL_REVIEWS);
-      setKnowledge(INITIAL_KNOWLEDGE);
       setAssets(INITIAL_ASSETS);
       setActivities(INITIAL_ACTIVITY);
       setSettings({
@@ -1964,6 +2794,7 @@ const prevActivities = activities;
         reviewerRole: activeIdentity.role,
       });
       setActiveReviewId(INITIAL_REVIEWS[0].id);
+      void refreshBrands();
       notify("Sample workspace data restored");
     }
   };
@@ -2104,11 +2935,23 @@ const prevActivities = activities;
     setGuidedTourOpen(true);
   }, []);
 
+  const selectedBrand =
+    workspaceBrands.find((b) => b.brandId === selectedBrandId) ?? null;
+
   return (
     <IdentiqContext.Provider
       value={{
+        hydrated,
         reviews,
         knowledge,
+        workspaceBrands,
+        selectedBrandId,
+        selectedBrand,
+        selectedBrandVersionId,
+        versionSnapshots,
+        knowledgeLoading,
+        knowledgeMutating,
+        knowledgeError,
         assets,
         activities,
         settings,
@@ -2130,6 +2973,15 @@ const prevActivities = activities;
         switchOrganisation,
         setAuthContext,
         reloadFromPersistence,
+        refreshBrands,
+        selectBrand,
+        selectBrandVersion,
+        createWorkspaceBrand,
+        saveKnowledgeEntry,
+        publishKnowledgeEntry,
+        archiveKnowledgeEntry,
+        getKnowledgeRequestContext,
+        reloadSelectedBrandKnowledge,
         setActiveReviewId,
         addReview,
         updateReviewStatus,

@@ -44,6 +44,8 @@ import { LandingView } from "@/components/onboarding/LandingView";
 import { OnboardingView } from "@/components/onboarding/OnboardingView";
 import { ViewerAvatar } from "@/components/ViewerAvatar";
 import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
+import { buildKnowledgeHubHref, buildNewReviewHref } from "@/lib/workspace-navigation";
+import { LATEST_KNOWLEDGE_VERSION_ID } from "@/lib/knowledge-versions";
 
 const CONTENT_FILTERS: Array<{
   label: string;
@@ -67,9 +69,15 @@ export default function HomePage() {
   const router = useRouter();
   const prefersReducedMotion = useReducedMotion();
   const {
+    hydrated,
     reviews,
     activities,
     knowledge,
+    workspaceBrands,
+    selectedBrandId,
+    selectedBrand: activeWorkspaceBrand,
+    selectedBrandVersionId,
+    knowledgeLoading,
     setActiveReviewId,
     user,
     viewerProfile,
@@ -93,8 +101,12 @@ export default function HomePage() {
   }, []);
 
   const availableBrands = useMemo(
-    () => getUniqueBrands(reviews, GUIDELINE_COLLECTIONS),
-    [reviews]
+    () =>
+      getUniqueBrands(reviews, [
+        ...workspaceBrands.map((b) => b.brandName),
+        ...GUIDELINE_COLLECTIONS,
+      ]),
+    [reviews, workspaceBrands]
   );
 
   const activeFilters = useMemo(
@@ -167,6 +179,11 @@ export default function HomePage() {
   };
 
   const approvedKnowledgeCount = knowledge.filter((k) => k.status === "Approved").length;
+  const newReviewHref = buildNewReviewHref({
+    brandId: selectedBrandId,
+    brandVersionId: selectedBrandVersionId,
+  });
+  const knowledgeHubHref = buildKnowledgeHubHref({ brandId: selectedBrandId });
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
@@ -176,8 +193,32 @@ export default function HomePage() {
           {/* Welcome Header + Primary CTA */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-[#6B6560] mb-1.5">
-                Identiq Governance Overview · {approvedKnowledgeCount} active brand rules
+              <p className="text-xs font-medium text-[#6B6560] mb-1.5 flex flex-wrap items-center gap-1.5 tabular-nums">
+                <span>Identiq Governance Overview</span>
+                {activeWorkspaceBrand && (
+                  <>
+                    <span>·</span>
+                    <Link
+                      href={knowledgeHubHref}
+                      className="font-semibold text-[#141414] hover:underline"
+                    >
+                      {activeWorkspaceBrand.brandName}
+                    </Link>
+                  </>
+                )}
+                <span>·</span>
+                <span>
+                  {!hydrated || knowledgeLoading
+                    ? "Syncing brand rules..."
+                    : `${approvedKnowledgeCount} active brand ${
+                        approvedKnowledgeCount === 1 ? "rule" : "rules"
+                      }${
+                        selectedBrandVersionId &&
+                        selectedBrandVersionId !== LATEST_KNOWLEDGE_VERSION_ID
+                          ? ` (${selectedBrandVersionId})`
+                          : ""
+                      }`}
+                </span>
               </p>
               <h1 className="text-3xl sm:text-[40px] font-bold tracking-tight leading-[1.12] text-[#141414] max-w-xl text-balance">
                 Govern your brand with verified evidence
@@ -187,14 +228,14 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#FAF8F6] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#FAF8F6] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]"
               >
                 <FileBarChart className="w-4 h-4 text-[#736B63]" />
                 Compliance Reports
               </Link>
               <Link
-                href="/reviews/new"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs"
+                href={newReviewHref}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold transition-colors whitespace-nowrap shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#141414]"
               >
                 <Plus className="w-4 h-4" />
                 Start New Review
@@ -346,7 +387,7 @@ export default function HomePage() {
                   </button>
                 ) : (
                   <Link
-                    href="/reviews/new"
+                    href={newReviewHref}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold hover:bg-[#2B2B2B]"
                   >
                     <Plus className="w-3.5 h-3.5" /> Start New Review

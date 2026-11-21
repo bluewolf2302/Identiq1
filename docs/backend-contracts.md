@@ -63,23 +63,32 @@ optional correction/location/confidence data.
 Wraps findings with submission/run identifiers, completion status, provider
 information, fallback usage, and an offset-aware timestamp.
 
-### Workflow contracts
+### Workflow & Guideline Intelligence contracts
 
 - `CorrectionRequest` records a requested finding correction.
 - `CorrectionResponse` returns the stored correction and the resulting finding.
 - `ReviewDecisionRequest` records an approve/request-changes/reject decision.
 - `SubmissionStatus` models submission lifecycle independently from finding
   status.
+- `GuidelineDocumentSession`, `GuidelineExtractedPage`, `KnowledgeProposal`,
+  `StructuredFactMetadata`, and `ProposalConflictMatch` (validated by strict
+  Zod schemas in `lib/guidelines/document-repository.ts`) model durable PDF
+  extraction, selective OCR provenance, structured fact extraction, and
+  bounded conflict resolution prior to publishing into `BrandKnowledgeRecord`
+  and `BrandContext`.
 
 ## Integration guidance
 
-- Aditi's Brand Knowledge Hub should map its records into `BrandContext` and
-  preserve `sourceIds`, `versionId`, and `sourceVersionInformation`.
-- Soham's deterministic rules and Harsh Joshi's visual analyzer should emit
-  `ReviewFinding` objects and use their provider name in `analysisProvider`.
-- The backend orchestration layer should validate provider output with
+- The Brand Knowledge Hub (`lib/brand-context`) maps published records (both
+  `manual` and `guideline_pdf` origins) into `BrandContext` and preserves
+  `sourceIds`, `versionId`, `sourceVersionInformation`, `documentTitle`,
+  `section`, `pageNumber`, and immutable `extractedText` excerpts.
+- Deterministic rules (`lib/governance`) and visual analyzers (`lib/visual`)
+  emit `ReviewFinding` objects and use their provider name in `analysisProvider`.
+- The backend orchestration layer validates provider output with
   `ReviewFindingSchema` or `AnalysisResponseSchema` before storage.
-- Harsh Kumar's Review Studio should consume `AnalysisResponse` and keep
-  submission status separate from finding status.
-- Bhumi's tests can use the schemas directly to exercise valid and invalid
-  payloads without depending on a provider or database.
+- Review Studio (`app/studio/page.tsx`) consumes `AnalysisResponse`, keeps
+  submission status separate from finding status, and links findings back to
+  their published Knowledge Hub source via `sourceId` and `pageNumber`.
+- Automated tests can use the schemas directly to exercise valid and invalid
+  payloads without depending on an external provider or database.

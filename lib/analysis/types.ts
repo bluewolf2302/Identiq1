@@ -19,6 +19,8 @@ import type { VisualAnalysisResult } from "../visual/types";
 export type BrandContextRetriever = {
   getForSubmission(query: {
     brandId: string;
+    organisationId?: string;
+    versionId?: string;
     submissionId?: string;
     contentPlatform?: string;
   }): Promise<BrandContextRetrieval>;

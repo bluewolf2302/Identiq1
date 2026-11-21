@@ -1,8 +1,8 @@
 # Unified analysis orchestration
 
-The [`lib/analysis`](../lib/analysis) module is the integration layer for the
-Phase 2, 3, and 4 services. It does not duplicate brand retrieval, deterministic
-matching, or provider integration logic.
+The [`lib/analysis`](../lib/analysis) module is the integration layer across
+brand context retrieval, deterministic text & visual rules, AI text & vision
+providers, and response contract validation.
 
 ## Architecture and execution sequence
 
@@ -13,23 +13,31 @@ sequenceDiagram
   participant Context as BrandContextService
   participant Deterministic as DeterministicTextGovernanceEngine
   participant AI as AiAnalysisService
+  participant Visual as VisualAnalysisRunner
 
   Caller->>Orchestrator: analyze(unknown request)
   Orchestrator->>Orchestrator: validate AnalysisRequest
-  Orchestrator->>Context: getForSubmission(brandId, submissionId, platform)
-  Context-->>Orchestrator: validated context + warnings
+  Orchestrator->>Context: getForSubmission(brandId, organisationId, brandVersionId, platform)
+  Context-->>Orchestrator: validated BrandContext + warnings
   Orchestrator->>Deterministic: analyze(content, context)
   Deterministic-->>Orchestrator: deterministic findings
   Orchestrator->>AI: analyze(content, context, deterministic findings)
   AI-->>Orchestrator: semantic findings/provider metadata
+  Orchestrator->>Visual: analyzeVisualCreative(creativePayload, syncedBrandSnapshot)
+  Visual-->>Orchestrator: OCR + deterministic visual + AI vision findings
   Orchestrator->>Orchestrator: conservative merge + response validation
   Orchestrator-->>Caller: validated AnalysisResponse
 ```
 
-`AnalysisOrchestrator` receives all services through constructor injection.
-Tests can therefore use fakes without Supabase, OpenRouter, Gemini, or network
-access. Optional run-ID and clock functions are injected for deterministic
-tests; production defaults use a UUID when available and the current time.
+`AnalysisOrchestrator` receives its services via constructor injection (or per-request factory resolution in [`composition-root.ts`](../lib/analysis/composition-root.ts)), enabling both production/API multi-brand execution and deterministic unit tests without network access.
+
+## Live BrandContext & Visual Sync
+
+When executing an analysis run:
+
+1. `AnalysisOrchestrator` resolves `BrandContext` using `request.brandId`, optional `request.organisationId`, and optional `request.brandVersionId`.
+2. Missing brands throw `BrandNotFoundError` (mapped to HTTP `404`), and cross-organisation requests throw `CrossTenantBrandAccessError` (mapped to HTTP `403`).
+3. The resolved `BrandContext` (including approved colours, visual/typography guidelines, prohibited terms, approved guidelines, product facts, source IDs, and active `versionId`) is passed into both text engines AND synced directly into the visual creative analysis pipeline via `brandContextSnapshot`. Neither text nor visual analysis falls back to hardcoded brand rules.
 
 ## Finding combination
 
@@ -50,22 +58,12 @@ deterministic, and AI failures produce `AnalysisOrchestrationError` with a
 safe stage identifier and the original typed error in `cause`. AI failure is
 never converted to an apparently clean response.
 
-The Phase 1 response contract has no warnings field. When the retrieval service
-returns a valid context with warnings for missing approved sections, the
-orchestrator returns `analysisStatus: "PARTIAL"` so incomplete knowledge is
-distinguished from a complete analysis. The warnings are not fabricated into
-findings or response fields.
+When `BrandContextService` returns retrieval warnings (for example missing
+approved sections or `"NO_PUBLISHED_KNOWLEDGE"` on a brand with zero published
+entries), or when visual OCR/vision encounters partial degradation, the
+orchestrator returns `analysisStatus: "PARTIAL"` and forwards structured
+`contextWarnings` / `visualExecution` metadata while preserving the canonical
+response contract.
 
 Final response validation failures are reported through
-`AnalysisResponseValidationError`. No shared Phase 1 contract is changed.
-
-## Future API usage
-
-An API route can construct the orchestrator with a real
-`BrandContextService`, `DeterministicTextGovernanceEngine`, and
-`createAiAnalysisServiceFromEnvironment()`, then pass the untrusted request body
-to `analyze`. The route should map typed orchestration errors to its HTTP error
-contract and must not expose provider credentials or internal causes.
-
-This phase does not create an API route, persistence adapter, visual analysis
-integration, or retry policy.
+`AnalysisResponseValidationError`.

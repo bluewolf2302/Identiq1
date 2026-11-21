@@ -40,6 +40,7 @@ export class InvalidBrandKnowledgeError extends Error {
 export type BrandContextRetrieval = {
   context: BrandContext;
   warnings: BrandContextWarning[];
+  record?: BrandKnowledgeRecord;
 };
 
 export class BrandContextService {
@@ -78,7 +79,7 @@ export class BrandContextService {
       throw new InvalidBrandKnowledgeError(parsed.error.issues);
     }
 
-    const applicable = filterApplicable(parsed.data, query);
+    const applicable = filterApplicableBrandKnowledge(parsed.data, query);
     const mapped = mapToBrandContext(applicable);
     const context = BrandContextSchema.safeParse(mapped);
     if (!context.success) {
@@ -88,6 +89,7 @@ export class BrandContextService {
     return {
       context: context.data,
       warnings: getWarnings(applicable),
+      record: applicable,
     };
   }
 }
@@ -112,26 +114,26 @@ function isApplicable(
   return submissionMatches && platformMatches;
 }
 
-function filterApplicable(
+export function filterApplicableBrandKnowledge(
   knowledge: BrandKnowledgeRecord,
   query: BrandContextQuery,
 ): BrandKnowledgeRecord {
   return {
     profile: knowledge.profile,
-    guidelines: knowledge.guidelines.filter((item) =>
-      isApplicable(item.applicableTo, query),
+    guidelines: knowledge.guidelines.filter(
+      (item) => item.approved && isApplicable(item.applicableTo, query),
     ),
-    productFacts: knowledge.productFacts.filter((item) =>
-      isApplicable(item.applicableTo, query),
+    productFacts: knowledge.productFacts.filter(
+      (item) => item.approved && isApplicable(item.applicableTo, query),
     ),
-    promotionalClaims: knowledge.promotionalClaims.filter((item) =>
-      isApplicable(item.applicableTo, query),
+    promotionalClaims: knowledge.promotionalClaims.filter(
+      (item) => item.approved && isApplicable(item.applicableTo, query),
     ),
-    terminology: knowledge.terminology.filter((item) =>
-      isApplicable(item.applicableTo, query),
+    terminology: knowledge.terminology.filter(
+      (item) => item.approved && isApplicable(item.applicableTo, query),
     ),
-    visualAssets: knowledge.visualAssets.filter((item) =>
-      isApplicable(item.applicableTo, query),
+    visualAssets: knowledge.visualAssets.filter(
+      (item) => item.approved && isApplicable(item.applicableTo, query),
     ),
   };
 }
@@ -227,6 +229,15 @@ function getWarnings(knowledge: BrandKnowledgeRecord): BrandContextWarning[] {
   }
   if (knowledge.visualAssets.length === 0) {
     warnings.push("NO_APPROVED_VISUAL_ASSETS");
+  }
+  if (
+    knowledge.guidelines.length === 0 &&
+    knowledge.productFacts.length === 0 &&
+    knowledge.promotionalClaims.length === 0 &&
+    knowledge.terminology.length === 0 &&
+    knowledge.visualAssets.length === 0
+  ) {
+    warnings.push("NO_PUBLISHED_KNOWLEDGE");
   }
   return warnings;
 }
