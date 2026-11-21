@@ -13,6 +13,7 @@ import {
   History,
   Settings,
   FileBarChart,
+  Radar,
   Menu,
   X,
   Plus,
@@ -45,6 +46,7 @@ const SIDEBAR_NAV_ITEMS: NavItem[] = [
   { label: "Approvals", shortLabel: "Approvals", href: "/approvals", icon: CheckSquare },
   { label: "Activity & History", shortLabel: "Activity", href: "/activity", icon: History },
   { label: "Reports & Export", shortLabel: "Reports", href: "/reports", icon: FileBarChart },
+  { label: "Brand Recall Radar", shortLabel: "Brand Recall Radar", href: "/brand-recall", icon: Radar },
   { label: "Settings", shortLabel: "Settings", href: "/settings", icon: Settings },
 ];
 

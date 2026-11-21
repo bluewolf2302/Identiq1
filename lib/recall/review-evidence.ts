@@ -1,6 +1,12 @@
 
 import type { ReviewSubmission } from "@/lib/types";
 
+export type VersionedEvidenceSource = {
+  sourceId: string;
+  sourceType: string;
+  sourceTitle: string;
+};
+
 export type MatchingReviewEvidence = {
   reviewId: string;
   reviewTitle: string;
@@ -9,6 +15,38 @@ export type MatchingReviewEvidence = {
   sourceType: string;
   versionId: string;
 };
+
+export function getVersionedEvidenceSources(
+  reviews: ReviewSubmission[]
+): VersionedEvidenceSource[] {
+  const sources = new Map<string, VersionedEvidenceSource>();
+
+  for (const review of reviews) {
+    for (const finding of review.findings) {
+      for (const reference of finding.evidenceReferences ?? []) {
+        if (!reference.versionId) {
+          continue;
+        }
+
+        const key = JSON.stringify([reference.sourceId, reference.sourceType]);
+        if (!sources.has(key)) {
+          sources.set(key, {
+            sourceId: reference.sourceId,
+            sourceType: reference.sourceType,
+            sourceTitle: reference.sourceTitle,
+          });
+        }
+      }
+    }
+  }
+
+  return [...sources.values()].sort(
+    (left, right) =>
+      left.sourceTitle.localeCompare(right.sourceTitle) ||
+      left.sourceId.localeCompare(right.sourceId) ||
+      left.sourceType.localeCompare(right.sourceType)
+  );
+}
 
 export function findReviewEvidenceForSource(
   reviews: ReviewSubmission[],
