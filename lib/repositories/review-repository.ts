@@ -11,6 +11,10 @@ import { ReviewDecision } from "../contracts/workflow";
 import { callPostgrest } from "../supabase/client";
 import { generateIdempotencyKey, mapPostgrestError } from "./idempotency";
 import { INITIAL_REVIEWS } from "../seed-data";
+import {
+  mapPersistedReviewFindingEvidence,
+  serializeReviewFindingForRpc,
+} from "./review-evidence-persistence";
 
 export interface SubmitReviewParams {
   review: ReviewSubmission;
@@ -132,6 +136,7 @@ export class SupabaseReviewRepository implements ReviewRepository {
           reviewDecisionReason: f.review_decision_reason ? String(f.review_decision_reason) : undefined,
           reviewDecisionAt: f.review_decision_at ? String(f.review_decision_at) : undefined,
           reviewDecisionBy: f.review_decision_by ? String(f.review_decision_by) : undefined,
+          ...mapPersistedReviewFindingEvidence(f),
           comments: rawComments.map((c) => ({
             id: String(c.id),
             author: String(c.author),
@@ -188,11 +193,13 @@ export class SupabaseReviewRepository implements ReviewRepository {
       p_analysis_run_id: params.review.analysisRunId || null,
       p_visual_summary: params.review.visualSummary || null,
       p_ocr_blocks: params.review.ocrBlocks || null,
-      p_findings: params.review.findings || [],
+      p_findings: (params.review.findings || []).map(
+        serializeReviewFindingForRpc,
+      ),
     };
 
     const res = await callPostgrest<{ review_id: string; compliance_score: number }>(
-      "/rest/v1/rpc/submit_review_atomic",
+      "/rest/v1/rpc/submit_review_atomic_with_evidence",
       {
         method: "POST",
         body: payload,

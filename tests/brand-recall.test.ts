@@ -9,6 +9,32 @@ import type {
   ReviewPriceDependency,
 } from "../lib/recall/types";
 
+const validPriceChange: PublishedPriceChange = {
+  organisationId: "org-1",
+  brandId: "brand-1",
+  productId: "product-1",
+  factId: "price-fact-1",
+  previousVersionId: "v1",
+  newVersionId: "v2",
+  supersededVersionIds: ["v1"],
+  previousAmountMinor: 49900,
+  newAmountMinor: 59900,
+  previousCurrency: "INR",
+  newCurrency: "INR",
+  status: "published",
+};
+
+const validReviewDependency: ReviewPriceDependency = {
+  organisationId: "org-1",
+  brandId: "brand-1",
+  reviewId: "review-1",
+  revisionId: "revision-1",
+  analysisRunId: "analysis-1",
+  productId: "product-1",
+  factId: "price-fact-1",
+  versionId: "v1",
+};
+
 test("flags a review that used an older published price", () => {
   const priceChange: PublishedPriceChange = {
     organisationId: "org-1",
@@ -37,6 +63,7 @@ test("flags a review that used an older published price", () => {
     revisionId: "revision-1",
     analysisRunId: "analysis-1",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -81,6 +108,7 @@ test("does not flag reviews for draft price changes", () => {
     revisionId: "revision-1",
     analysisRunId: "analysis-1",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -123,6 +151,7 @@ test("does not flag reviews when published price remains unchanged", () => {
     revisionId: "revision-1",
     analysisRunId: "analysis-1",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -165,6 +194,7 @@ test("does not flag reviews depending on an unrelated product", () => {
     revisionId: "revision-B",
     analysisRunId: "analysis-B",
 
+    productId: "product-B",
     factId: "price-fact-B",
     versionId: "v1",
   };
@@ -207,6 +237,7 @@ test("does not flag reviews belonging to another organisation", () => {
     revisionId: "revision-B",
     analysisRunId: "analysis-B",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -249,6 +280,7 @@ test("does not flag reviews belonging to another brand", () => {
     revisionId: "revision-B",
     analysisRunId: "analysis-B",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -291,6 +323,7 @@ test("does not flag reviews already using the new price version", () => {
     revisionId: "revision-2",
     analysisRunId: "analysis-2",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v2",
   };
@@ -333,6 +366,7 @@ test("flags reviews using older versions after multiple price updates", () => {
     revisionId: "revision-old",
     analysisRunId: "analysis-old",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -378,6 +412,7 @@ test("does not create duplicate impacts for repeated events", () => {
     revisionId: "revision-1",
     analysisRunId: "analysis-1",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -421,6 +456,7 @@ test("flags reviews when the published price currency changes", () => {
     revisionId: "revision-1",
     analysisRunId: "analysis-1",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -465,6 +501,7 @@ test("does not infer an impact without superseded version evidence", () => {
     revisionId: "revision-old",
     analysisRunId: "analysis-old",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
   };
@@ -506,6 +543,7 @@ test("flags multiple affected reviews but ignores current reviews", () => {
       reviewId: "review-A",
       revisionId: "revision-A",
       analysisRunId: "analysis-A",
+      productId: "product-1",
       factId: "price-fact-1",
       versionId: "v1",
     },
@@ -515,6 +553,7 @@ test("flags multiple affected reviews but ignores current reviews", () => {
       reviewId: "review-B",
       revisionId: "revision-B",
       analysisRunId: "analysis-B",
+      productId: "product-1",
       factId: "price-fact-1",
       versionId: "v1",
     },
@@ -524,6 +563,7 @@ test("flags multiple affected reviews but ignores current reviews", () => {
       reviewId: "review-C",
       revisionId: "revision-C",
       analysisRunId: "analysis-C",
+      productId: "product-1",
       factId: "price-fact-1",
       versionId: "v2",
     },
@@ -575,6 +615,7 @@ test("keeps different revisions of the same review separate", () => {
       reviewId: "review-1",
       revisionId: "revision-1",
       analysisRunId: "analysis-1",
+      productId: "product-1",
       factId: "price-fact-1",
       versionId: "v1",
     },
@@ -584,6 +625,7 @@ test("keeps different revisions of the same review separate", () => {
       reviewId: "review-1",
       revisionId: "revision-2",
       analysisRunId: "analysis-2",
+      productId: "product-1",
       factId: "price-fact-1",
       versionId: "v1",
     },
@@ -640,6 +682,7 @@ test("preserves the original price used during review", () => {
     revisionId: "revision-old",
     analysisRunId: "analysis-old",
 
+    productId: "product-1",
     factId: "price-fact-1",
     versionId: "v1",
 
@@ -662,4 +705,47 @@ test("preserves the original price used during review", () => {
   assert.equal(impacts[0].newAmountMinor, 69900);
 
   assert.equal(impacts[0].previousAmountMinor, 59900);
+});
+
+test("ignores invalid price amounts, currencies, and version identities", () => {
+  const invalidChanges: PublishedPriceChange[] = [
+    { ...validPriceChange, previousAmountMinor: Number.NaN },
+    { ...validPriceChange, newAmountMinor: -1 },
+    { ...validPriceChange, newAmountMinor: 59900.5 },
+    { ...validPriceChange, newCurrency: "inr" },
+    { ...validPriceChange, factId: " " },
+    { ...validPriceChange, supersededVersionIds: [] },
+    {
+      ...validPriceChange,
+      supersededVersionIds: ["v1", "v2"],
+    },
+  ];
+
+  for (const change of invalidChanges) {
+    assert.deepEqual(detectRecallImpacts([change], [validReviewDependency]), []);
+  }
+});
+
+test("requires matching stable product identity even when fact IDs match", () => {
+  const dependency = {
+    ...validReviewDependency,
+    productId: "another-product",
+  };
+
+  assert.deepEqual(
+    detectRecallImpacts([validPriceChange], [dependency]),
+    [],
+  );
+});
+
+test("ignores dependencies with invalid optional price values", () => {
+  const invalidDependencies: ReviewPriceDependency[] = [
+    { ...validReviewDependency, usedAmountMinor: 59900.5 },
+    { ...validReviewDependency, usedAmountMinor: -1 },
+    { ...validReviewDependency, usedCurrency: "inr" },
+  ];
+
+  for (const dependency of invalidDependencies) {
+    assert.deepEqual(detectRecallImpacts([validPriceChange], [dependency]), []);
+  }
 });

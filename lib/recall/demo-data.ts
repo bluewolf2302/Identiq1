@@ -28,6 +28,7 @@ export const demoReviewDependencies: ReviewPriceDependency[] = [
     reviewId: "DEMO-REVIEW-001",
     revisionId: "demo-revision-1",
     analysisRunId: "demo-analysis-1",
+    productId: "demo-product",
     factId: "demo-price-fact",
     versionId: "v1",
     usedAmountMinor: 49900,

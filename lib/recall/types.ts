@@ -26,6 +26,7 @@ export type ReviewPriceDependency = {
   revisionId: string;
   analysisRunId: string;
 
+  productId: string;
   factId: string;
   versionId: string;
 
