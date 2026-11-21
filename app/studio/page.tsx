@@ -1166,6 +1166,26 @@ function ReviewStudioInner() {
                     onChange={(e) => setCorrectionDraft(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#E7E1DA] bg-white text-xs text-[#141414] focus:outline-none focus:border-[#141414]"
                   />
+                  {selectedFinding.editedCorrection && (
+                    <div
+                      role="status"
+                      className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium ${
+                        selectedFinding.resolved
+                          ? "bg-[#E1F5EC] text-[#176044]"
+                          : "bg-[#FFF4D6] text-[#76520A]"
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          selectedFinding.resolved ? "bg-[#2D9B6B]" : "bg-[#D49A22]"
+                        }`}
+                      />
+                      {selectedFinding.resolved
+                        ? "Correction applied to this review copy."
+                        : "Draft saved to this finding. It is not applied yet."}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <button
                       type="button"

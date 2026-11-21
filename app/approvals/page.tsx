@@ -287,6 +287,7 @@ export default function ApprovalsPage() {
                         />
                         <button
                           type="button"
+                          disabled={finding.resolved}
                           onClick={() =>
                             updateFindingCorrection(
                               activeReview.id,
@@ -295,11 +296,16 @@ export default function ApprovalsPage() {
                               true
                             )
                           }
-                          className="px-3.5 py-1.5 rounded-lg bg-[#141414] text-white text-xs font-semibold whitespace-nowrap"
+                          className="px-3.5 py-1.5 rounded-lg bg-[#141414] text-white text-xs font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:bg-[#D8D2CC] disabled:text-[#6B6560]"
                         >
-                          Accept & Apply
+                          {finding.resolved ? "Already Applied" : "Accept & Apply"}
                         </button>
                       </div>
+                      {finding.resolved && (
+                        <p className="text-[11px] text-[#176044]">
+                          This finding is already resolved. Reopen it above before applying another correction.
+                        </p>
+                      )}
                     </div>
 
                     {/* Comment input */}
