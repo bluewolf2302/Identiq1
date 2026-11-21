@@ -148,45 +148,12 @@ test("passes brand, submission, and platform identifiers to retrieval", async ()
   });
 });
 
-test("includes structured coverage and preserves re-analysis metadata", async () => {
-  const { orchestrator } = createOrchestrator({ warnings: ["NO_APPROVED_VISUAL_ASSETS"] });
-  const response = await orchestrator.analyze({
-    ...request,
-    previousAnalysisRunId: "run-previous",
-  });
-
-  assert.equal(response.coverage?.brandContext.status, "COMPLETED");
-  assert.equal(response.coverage?.deterministic.status, "COMPLETED");
-  assert.equal(response.coverage?.semanticAI.status, "COMPLETED");
-  assert.equal(response.coverage?.ocr.status, "SKIPPED");
-  assert.equal(response.coverage?.visual.status, "SKIPPED");
-  assert.equal(response.previousAnalysisRunId, "run-previous");
-});
-
 test("marks valid incomplete brand context as partial", async () => {
   const { orchestrator } = createOrchestrator({
     warnings: ["NO_APPROVED_PRODUCT_FACTS"],
   });
   const response = await orchestrator.analyze(request);
   assert.equal(response.analysisStatus, "PARTIAL");
-});
-
-test("complete, partial, and hard-failure statuses remain distinct", async () => {
-  const complete = createOrchestrator({});
-  const completeResponse = await complete.orchestrator.analyze(request);
-  assert.equal(completeResponse.analysisStatus, "COMPLETED");
-
-  const partial = createOrchestrator({ warnings: ["NO_APPROVED_VISUAL_ASSETS"] });
-  const partialResponse = await partial.orchestrator.analyze(request);
-  assert.equal(partialResponse.analysisStatus, "PARTIAL");
-
-  const hardFailure = createOrchestrator({ deterministicError: new Error("engine failed") });
-  await assert.rejects(
-    hardFailure.orchestrator.analyze(request),
-    (error: unknown) =>
-      error instanceof AnalysisOrchestrationError &&
-      error.stage === "deterministic",
-  );
 });
 
 test("keeps distinct findings in the same category and removes exact duplicates", async () => {

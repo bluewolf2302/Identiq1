@@ -97,12 +97,15 @@ export async function GET(req: NextRequest) {
     if (err instanceof BrandKnowledgeRepositoryError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
+    if (err instanceof Error && err.name === "ZodError") {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     console.error(
       "Unhandled GET /api/guidelines/documents error:",
-      err instanceof Error ? err.name : "UnknownError",
+      err instanceof Error ? err.message : String(err),
     );
     return NextResponse.json(
-      { error: "Unable to load guideline document sessions." },
+      { error: err instanceof Error ? err.message : "Unable to load guideline document sessions." },
       { status: 500 },
     );
   }
@@ -289,12 +292,15 @@ export async function POST(req: NextRequest) {
     if (err instanceof BrandKnowledgeRepositoryError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
+    if (err instanceof Error && err.name === "ZodError") {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     console.error(
       "Unhandled POST /api/guidelines/documents error:",
-      err instanceof Error ? err.name : "UnknownError",
+      err instanceof Error ? err.message : String(err),
     );
     return NextResponse.json(
-      { error: "Unable to process uploaded guideline PDF." },
+      { error: err instanceof Error ? err.message : "Unable to process uploaded guideline PDF." },
       { status: 500 },
     );
   }

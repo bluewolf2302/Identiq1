@@ -154,8 +154,8 @@ test("maps AI failure to service unavailable instead of clean success", async ()
   });
   assert.equal(result.status, 503);
   assert.equal(
-    (result.body as { analysisStatus: string }).analysisStatus,
-    "FAILED",
+    (result.body as { error: string }).error,
+    "AI semantic analysis is currently unavailable.",
   );
 });
 
@@ -173,8 +173,8 @@ test("maps missing brand and deterministic failures to safe HTTP errors", async 
   });
   assert.equal(missingBrand.status, 404);
   assert.equal(
-    (missingBrand.body as { analysisStatus: string }).analysisStatus,
-    "FAILED",
+    (missingBrand.body as { error: string }).error,
+    "No approved brand context was found for this submission.",
   );
 
   const deterministicFailure = await handleAnalysisRequest(frontendRequest, {
@@ -189,8 +189,8 @@ test("maps missing brand and deterministic failures to safe HTTP errors", async 
   });
   assert.equal(deterministicFailure.status, 500);
   assert.equal(
-    (deterministicFailure.body as { analysisStatus: string }).analysisStatus,
-    "FAILED",
+    (deterministicFailure.body as { error: string }).error,
+    "Deterministic governance analysis failed.",
   );
 });
 
@@ -233,8 +233,7 @@ test("maps unexpected orchestration exceptions to a safe server error", async ()
     },
   });
   assert.equal(result.status, 500);
-  assert.equal(
-    (result.body as { analysisStatus: string }).analysisStatus,
-    "FAILED",
-  );
+  assert.deepEqual(result.body, {
+    error: "Unable to complete brand governance analysis.",
+  });
 });

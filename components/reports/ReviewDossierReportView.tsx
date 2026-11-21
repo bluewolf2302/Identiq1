@@ -132,34 +132,6 @@ export function ReviewDossierReportView({
           </div>
         </div>
 
-        {review.coverage && (
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-5 gap-2">
-            {Object.entries(review.coverage).map(([check, coverage]) => (
-              <div key={check} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F6] p-3">
-                <div className="text-[10px] uppercase tracking-wider text-[#8C827A]">
-                  {check.replace(/([A-Z])/g, " $1").trim()}
-                </div>
-                <div className={`mt-1 text-xs font-bold ${
-                  coverage.status === "COMPLETED"
-                    ? "text-[#15803D]"
-                    : coverage.status === "FAILED"
-                      ? "text-[#9C2740]"
-                      : coverage.status === "SKIPPED"
-                        ? "text-[#2563EB]"
-                        : "text-[#B45309]"
-                }`}>
-                  {coverage.status}
-                </div>
-                {coverage.reason && (
-                  <p className="mt-1 text-[10px] leading-relaxed text-[#736B63]">
-                    {coverage.reason}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* Reviewer Notes if available */}
         {review.reviewerNotes && (
           <div className="mt-5 p-3.5 rounded-xl bg-[#FAF8F6] border border-[#E7E1DA] text-xs">
@@ -343,12 +315,6 @@ function FindingDetailCard({
       <p className="text-xs text-[#5A5550] leading-relaxed mb-4">
         {finding.description}
       </p>
-      {finding.explanation && (
-        <p className="mb-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F6] px-3 py-2 text-xs text-[#5A5550] leading-relaxed">
-          <span className="font-semibold text-[#141414]">Why this is a concern: </span>
-          {finding.explanation}
-        </p>
-      )}
 
       {/* Values & Citations Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-[#FAF8F6] border border-[#E7E1DA] text-xs">
@@ -371,25 +337,6 @@ function FindingDetailCard({
         <div className="mt-3 text-xs text-[#736B63] flex items-center gap-1.5">
           <span className="font-semibold text-[#141414]">Guideline Citation:</span>
           <span className="italic">{finding.sourceReference}</span>
-        </div>
-      )}
-      {finding.evidenceReferences && finding.evidenceReferences.length > 0 && (
-        <div className="mt-2 space-y-1 text-[11px] text-[#736B63]">
-          {finding.evidenceReferences.map((reference, index) => (
-            <p key={`${reference.sourceId}-${reference.versionId ?? "none"}-${index}`}>
-              Evidence: {reference.sourceTitle} · {reference.sourceId}
-              {reference.versionId ? ` · version ${reference.versionId}` : " · version unavailable"}
-              {reference.pageNumber ? ` · page ${reference.pageNumber}` : ""}
-              {reference.section ? ` · section ${reference.section}` : ""}
-              {reference.excerpt ? ` · "${reference.excerpt}"` : ""}
-            </p>
-          ))}
-        </div>
-      )}
-      {finding.recommendation && (
-        <div className="mt-3 text-xs text-[#14532D]">
-          <span className="font-semibold">Suggested correction: </span>
-          {finding.recommendation}
         </div>
       )}
 

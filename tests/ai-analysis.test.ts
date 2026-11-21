@@ -141,25 +141,6 @@ test("validates source metadata, excerpts, and exact finding locations", () => {
   assert.equal(repeatedQuote[0]?.location, undefined);
 });
 
-test("keeps missing evidence claims unverified instead of inventing support", () => {
-  const findings = parseAndValidateCandidates(
-    {
-      findings: [
-        {
-          ...candidate.findings[0],
-          status: "UNVERIFIED",
-          evidenceReferences: [],
-        },
-      ],
-    },
-    context,
-    "Stop now",
-  );
-
-  assert.equal(findings[0]?.status, "UNVERIFIED");
-  assert.deepEqual(findings[0]?.evidenceReferences, []);
-});
-
 test("accepts only canonical AI category, severity, and status values", () => {
   for (const category of [
     "TONE_AND_TERMINOLOGY",

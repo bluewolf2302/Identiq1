@@ -116,7 +116,6 @@ export class SupabaseReviewRepository implements ReviewRepository {
           category: (f.category as ReviewFinding["category"]) || "Brand Claims",
           title: String(f.title || ""),
           description: String(f.description || ""),
-          explanation: f.explanation ? String(f.explanation) : undefined,
           severity: (f.severity as ReviewFinding["severity"]) || "medium",
           evidenceStatus: (f.evidence_status as ReviewFinding["evidenceStatus"]) || "unverified",
           detectedValue: String(f.detected_value || ""),
@@ -140,23 +139,6 @@ export class SupabaseReviewRepository implements ReviewRepository {
             text: String(c.text),
             createdAt: String(c.created_at),
           })),
-          ...(Array.isArray(f.evidence_references)
-            ? { evidenceReferences: f.evidence_references as ReviewFinding["evidenceReferences"] }
-            : {}),
-          ...(Array.isArray(f.source_version_ids)
-            ? { sourceVersionIds: f.source_version_ids as string[] }
-            : {}),
-          ...(f.location && typeof f.location === "object"
-            ? { location: f.location as ReviewFinding["location"] }
-            : {}),
-          ...(typeof f.confidence === "number"
-            ? { confidence: f.confidence }
-            : {}),
-          ...(f.detector ? { detector: f.detector as ReviewFinding["detector"] } : {}),
-          ...(typeof f.requires_human_review === "boolean"
-            ? { requiresHumanReview: f.requires_human_review }
-            : {}),
-          ...(f.source_domain ? { sourceDomain: f.source_domain as ReviewFinding["sourceDomain"] } : {}),
         };
       });
 
@@ -178,13 +160,6 @@ export class SupabaseReviewRepository implements ReviewRepository {
         fallbackUsed: Boolean(row.fallback_used),
         analysisStatus: row.analysis_status as ReviewSubmission["analysisStatus"],
         analysisRunId: row.analysis_run_id ? String(row.analysis_run_id) : undefined,
-        previousAnalysisRunId: row.previous_analysis_run_id ? String(row.previous_analysis_run_id) : undefined,
-        coverage: row.coverage && typeof row.coverage === "object"
-          ? row.coverage as ReviewSubmission["coverage"]
-          : undefined,
-        comparison: row.analysis_comparison && typeof row.analysis_comparison === "object"
-          ? row.analysis_comparison as ReviewSubmission["comparison"]
-          : undefined,
         findings,
       };
     });
@@ -216,66 +191,16 @@ export class SupabaseReviewRepository implements ReviewRepository {
       p_findings: params.review.findings || [],
     };
 
-    const hasAnalysisLineage = Boolean(params.review.previousAnalysisRunId);
     const res = await callPostgrest<{ review_id: string; compliance_score: number }>(
-      hasAnalysisLineage
-        ? "/rest/v1/rpc/submit_review_with_lineage_atomic"
-        : "/rest/v1/rpc/submit_review_atomic",
+      "/rest/v1/rpc/submit_review_atomic",
       {
         method: "POST",
-        body: {
-          ...payload,
-          ...(params.review.previousAnalysisRunId
-            ? {
-                p_previous_analysis_run_id:
-                  params.review.previousAnalysisRunId,
-              }
-            : {}),
-        },
+        body: payload,
         headers: { "Idempotency-Key": key },
       }
     );
 
     if (res.error) throw mapPostgrestError(res.error);
-    await callPostgrest(
-      `/rest/v1/reviews?id=eq.${encodeURIComponent(params.review.id)}&select=id`,
-      {
-        method: "PATCH",
-        body: {
-          ...(params.review.coverage ? { coverage: params.review.coverage } : {}),
-          ...(params.review.comparison
-            ? { analysis_comparison: params.review.comparison }
-            : {}),
-        },
-      },
-    );
-
-    for (const finding of params.review.findings ?? []) {
-      await callPostgrest(
-        `/rest/v1/review_findings?id=eq.${encodeURIComponent(finding.id)}&select=id`,
-        {
-          method: "PATCH",
-          body: {
-            ...(finding.explanation ? { explanation: finding.explanation } : {}),
-            ...(finding.evidenceReferences
-              ? { evidence_references: finding.evidenceReferences }
-              : {}),
-            ...(finding.sourceVersionIds
-              ? { source_version_ids: finding.sourceVersionIds }
-              : {}),
-            ...(finding.location ? { location: finding.location } : {}),
-            ...(finding.confidence !== undefined
-              ? { confidence: finding.confidence }
-              : {}),
-            ...(finding.detector ? { detector: finding.detector } : {}),
-            ...(finding.requiresHumanReview !== undefined
-              ? { requires_human_review: finding.requiresHumanReview }
-              : {}),
-            ...(finding.sourceDomain ? { source_domain: finding.sourceDomain } : {}),
-          },
-        },
-      );
-    }
     return {
       reviewId: res.data?.review_id || params.review.id,
       complianceScore: res.data?.compliance_score ?? params.review.complianceScore,

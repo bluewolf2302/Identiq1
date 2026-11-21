@@ -7,13 +7,16 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Eye,
   FileImage,
+  FileText,
   HardDrive,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -21,6 +24,10 @@ import {
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { PASTEL_SURFACE } from "@/components/ThemeTokens";
 import { AssetCategory, BrandAsset, PastelTheme } from "@/lib/types";
+import {
+  partitionWorkspaceAssets,
+  TERALUNE_DEMO_BRAND_ID,
+} from "@/lib/demo/teralune-demo-fixtures";
 import {
   formatAssetBytes,
   getAssetPersistenceNotice,
@@ -38,8 +45,16 @@ const CATEGORIES: Array<"All" | AssetCategory> = [
 ];
 
 export default function AssetLibraryPage() {
-  const { assets, addAsset, deleteAsset, notify, hydrated, persistenceMode, selectedBrandId } =
-    useIdentiq();
+  const {
+    assets,
+    addAsset,
+    deleteAsset,
+    notify,
+    hydrated,
+    persistenceMode,
+    selectedBrandId,
+    isDemoWorkspace,
+  } = useIdentiq();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<"All" | AssetCategory>("All");
@@ -102,8 +117,18 @@ export default function AssetLibraryPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewAsset, uploadOpen]);
 
+  const { demoAssets, workspaceAssets } = useMemo(
+    () => partitionWorkspaceAssets(assets, { isDemoWorkspace }),
+    [assets, isDemoWorkspace],
+  );
+
+  const visibleAssets = useMemo(
+    () => (isDemoWorkspace ? [...demoAssets, ...workspaceAssets] : workspaceAssets),
+    [isDemoWorkspace, demoAssets, workspaceAssets],
+  );
+
   const filteredAssets = useMemo(() => {
-    return assets.filter((asset) => {
+    return visibleAssets.filter((asset) => {
       const catMatch = selectedCategory === "All" || asset.category === selectedCategory;
       const q = searchQuery.trim().toLowerCase();
       const searchMatch =
@@ -113,7 +138,7 @@ export default function AssetLibraryPage() {
         asset.format.toLowerCase().includes(q);
       return catMatch && searchMatch;
     });
-  }, [assets, selectedCategory, searchQuery]);
+  }, [visibleAssets, selectedCategory, searchQuery]);
 
   const hasActiveFilter = selectedCategory !== "All" || searchQuery.trim().length > 0;
 
@@ -209,25 +234,40 @@ export default function AssetLibraryPage() {
         <div>
           <p className="text-xs font-medium text-[#6B6560] mb-1 tabular-nums">
             {hydrated
-              ? `${assets.length} visual ${assets.length === 1 ? "resource" : "resources"} · Approved logos, photography, and marks`
+              ? `${visibleAssets.length} visual ${visibleAssets.length === 1 ? "resource" : "resources"} · ${
+                  isDemoWorkspace
+                    ? "Teralune demo guidelines, sample ads, logos & packaging specs"
+                    : "Approved logos, photography, and marks"
+                }`
               : "Loading visual resources..."}
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-[#141414]">
             Asset Library
           </h1>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setUploadError("");
-            setFileValidationError("");
-            setUploadOpen(true);
-          }}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2A2A2A] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#141414]"
-        >
-          <Plus className="w-4 h-4" />
-          Upload Asset
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {isDemoWorkspace && (
+            <Link
+              href={`/reviews/new?brandId=${encodeURIComponent(TERALUNE_DEMO_BRAND_ID)}`}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors whitespace-nowrap"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#14532D]" />
+              Try Demo Review
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setUploadError("");
+              setFileValidationError("");
+              setUploadOpen(true);
+            }}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2A2A2A] text-xs font-semibold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#141414]"
+          >
+            <Plus className="w-4 h-4" />
+            Upload Asset
+          </button>
+        </div>
       </div>
 
       {/* Honest Storage Scope Banner */}
@@ -242,10 +282,14 @@ export default function AssetLibraryPage() {
           <HardDrive className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[#141414]">
-              {persistenceNotice.label}
+              {isDemoWorkspace
+                ? "Demo Workspace · Curated Teralune Fixtures (Sample Data)"
+                : persistenceNotice.label}
             </p>
             <p className="text-[11px] leading-relaxed mt-0.5">
-              {persistenceNotice.description}
+              {isDemoWorkspace
+                ? "Teralune sample PDFs, logos, and packaging specs are isolated demo fixtures. Uploaded assets stay in this demo session."
+                : persistenceNotice.description}
             </p>
           </div>
         </div>
@@ -372,6 +416,27 @@ export default function AssetLibraryPage() {
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
                       />
+                    ) : asset.format === "PDF" ? (
+                      <div className="w-full h-full p-5 flex flex-col justify-between text-left bg-[#F4F8F7]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#163A52]">
+                            {asset.isDemoFixture ? "Demo Sample · PDF" : "PDF Document"}
+                          </span>
+                          <span className="w-8 h-8 rounded-xl bg-white border border-[#DFF1ED] flex items-center justify-center text-[#163A52]">
+                            <FileText className="w-4 h-4" />
+                          </span>
+                        </div>
+                        <div className="bg-white border border-[#DFF1ED] rounded-xl p-3 space-y-1 shadow-2xs">
+                          <p className="text-xs font-bold text-[#163A52] line-clamp-2">
+                            {asset.name}
+                          </p>
+                          <p className="text-[11px] text-[#239A8B] font-semibold tabular-nums">
+                            {asset.pageCount
+                              ? `${asset.pageCount} page${asset.pageCount === 1 ? "" : "s"}`
+                              : asset.dimensions}
+                          </p>
+                        </div>
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center gap-2 px-6 text-center">
                         <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-xs">
@@ -390,11 +455,12 @@ export default function AssetLibraryPage() {
 
                   <div className="p-4">
                     <div className="flex items-center justify-between gap-2 text-xs mb-1">
-                      <span className="text-[#6B6560]">
+                      <span className="text-[#6B6560] truncate">
+                        {asset.isDemoFixture ? "Demo Sample · " : ""}
                         {asset.category} · {asset.format}
                       </span>
                       <span
-                        className={`inline-flex items-center gap-1 font-semibold ${
+                        className={`inline-flex items-center gap-1 font-semibold shrink-0 ${
                           isApproved ? "text-[#166534]" : "text-[#92400E]"
                         }`}
                       >
@@ -416,7 +482,18 @@ export default function AssetLibraryPage() {
 
                 <div className="px-4 py-3 border-t border-[#F0ECE7] flex items-center justify-between text-xs text-[#6B6560]">
                   <span className="font-mono tabular-nums">{asset.dimensions}</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
+                    {asset.documentUrl && (
+                      <a
+                        href={asset.documentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-[#524E4A] hover:text-[#141414]"
+                      >
+                        Open PDF
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPreviewAsset(asset)}
@@ -424,14 +501,16 @@ export default function AssetLibraryPage() {
                     >
                       Inspect
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteAsset(asset.id)}
-                      aria-label={`Remove ${asset.name}`}
-                      className="text-[#991B1B] hover:opacity-75 p-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {!asset.isDemoFixture && (
+                      <button
+                        type="button"
+                        onClick={() => deleteAsset(asset.id)}
+                        aria-label={`Remove ${asset.name}`}
+                        className="text-[#991B1B] hover:opacity-75 p-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -474,7 +553,26 @@ export default function AssetLibraryPage() {
             </div>
 
             <div className="bg-[#FAF8F6] p-6 flex items-center justify-center">
-              {previewAsset.previewUrl ? (
+              {previewAsset.documentUrl ? (
+                <div className="w-full space-y-3">
+                  <iframe
+                    src={previewAsset.documentUrl}
+                    title={previewAsset.name}
+                    className="w-full h-80 rounded-2xl border border-[#E7E1DA] bg-white"
+                  />
+                  <div className="flex justify-end">
+                    <a
+                      href={previewAsset.documentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414]"
+                    >
+                      Open PDF in New Tab
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+              ) : previewAsset.previewUrl ? (
                 <img
                   src={previewAsset.previewUrl}
                   alt={previewAsset.name}
@@ -496,7 +594,7 @@ export default function AssetLibraryPage() {
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-xs text-[#6B6560] tabular-nums">
-                  Updated {previewAsset.updatedAt}
+                  {previewAsset.isDemoFixture ? "Demo Sample · " : ""}Updated {previewAsset.updatedAt}
                 </span>
                 <button
                   type="button"

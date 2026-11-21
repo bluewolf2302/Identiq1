@@ -510,12 +510,12 @@ export class FileBackedGuidelineDocumentRepository
 
 interface SupabaseAuditSessionRow {
   id: string;
-  organisation_id: string;
+  organisation_id?: string;
   brand_id: string | null;
   action: string;
   entity_type: string;
   entity_id: string | null;
-  metadata: {
+  details: {
     session?: unknown;
   } | null;
   created_at: string;
@@ -525,7 +525,7 @@ export class SupabaseGuidelineDocumentRepository
   implements GuidelineDocumentRepository
 {
   private extractSession(row: SupabaseAuditSessionRow): GuidelineDocumentSession | null {
-    const parsed = GuidelineDocumentSessionSchema.safeParse(row.metadata?.session);
+    const parsed = GuidelineDocumentSessionSchema.safeParse(row.details?.session);
     return parsed.success ? parsed.data : null;
   }
 
@@ -535,7 +535,7 @@ export class SupabaseGuidelineDocumentRepository
     includeDiscarded?: boolean;
   }): Promise<GuidelineDocumentSession[]> {
     const res = await callServerPostgrest<SupabaseAuditSessionRow[]>(
-      `/rest/v1/audit_logs?organisation_id=eq.${encodeURIComponent(query.organisationId)}&brand_id=eq.${encodeURIComponent(query.brandId)}&action=eq.GUIDELINE_DOCUMENT_SESSION&entity_type=eq.guideline_document&order=created_at.desc`,
+      `/rest/v1/audit_logs?brand_id=eq.${encodeURIComponent(query.brandId)}&action=eq.GUIDELINE_DOCUMENT_SESSION&entity_type=eq.guideline_document&order=created_at.desc`,
       { useServiceRole: true },
     );
 
@@ -549,6 +549,7 @@ export class SupabaseGuidelineDocumentRepository
     for (const row of res.data) {
       const session = this.extractSession(row);
       if (!session) continue;
+      if (session.organisationId !== query.organisationId) continue;
       if (!byDocId.has(session.documentId)) {
         byDocId.set(session.documentId, session);
       }
@@ -576,14 +577,16 @@ export class SupabaseGuidelineDocumentRepository
 
     const row = res.data[0];
     if (!row) return null;
-    if (row.organisation_id !== query.organisationId) {
+    const session = this.extractSession(row);
+    if (!session) return null;
+    if (session.organisationId !== query.organisationId) {
       throw new CrossTenantBrandAccessError(
-        row.brand_id || "unknown",
+        session.brandId || row.brand_id || "unknown",
         query.organisationId,
       );
     }
 
-    return this.extractSession(row);
+    return session;
   }
 
   async findByChecksum(query: {
@@ -658,7 +661,7 @@ export class SupabaseGuidelineDocumentRepository
     }
 
     const existingAudit = await callServerPostgrest<Array<{ id: string }>>(
-      `/rest/v1/audit_logs?organisation_id=eq.${encodeURIComponent(validated.organisationId)}&entity_type=eq.guideline_document&entity_id=eq.${encodeURIComponent(validated.documentId)}&action=eq.GUIDELINE_DOCUMENT_SESSION&select=id&limit=1`,
+      `/rest/v1/audit_logs?entity_type=eq.guideline_document&entity_id=eq.${encodeURIComponent(validated.documentId)}&action=eq.GUIDELINE_DOCUMENT_SESSION&select=id&limit=1`,
       { useServiceRole: true },
     );
 
@@ -669,7 +672,7 @@ export class SupabaseGuidelineDocumentRepository
           method: "PATCH",
           useServiceRole: true,
           body: {
-            metadata: { session: validated },
+            details: { session: validated },
           },
         },
       );
@@ -683,12 +686,11 @@ export class SupabaseGuidelineDocumentRepository
         method: "POST",
         useServiceRole: true,
         body: {
-          organisation_id: validated.organisationId,
           brand_id: validated.brandId,
           action: "GUIDELINE_DOCUMENT_SESSION",
           entity_type: "guideline_document",
           entity_id: validated.documentId,
-          metadata: { session: validated },
+          details: { session: validated },
         },
       });
       if (insertRes.error) {
@@ -766,7 +768,7 @@ export class SupabaseGuidelineDocumentRepository
 
     if (!hasPublished) {
       await callServerPostgrest(
-        `/rest/v1/audit_logs?organisation_id=eq.${encodeURIComponent(input.organisationId)}&entity_type=eq.guideline_document&entity_id=eq.${encodeURIComponent(input.documentId)}&action=eq.GUIDELINE_DOCUMENT_SESSION`,
+        `/rest/v1/audit_logs?entity_type=eq.guideline_document&entity_id=eq.${encodeURIComponent(input.documentId)}&action=eq.GUIDELINE_DOCUMENT_SESSION`,
         { method: "DELETE", useServiceRole: true },
       );
       await callServerPostgrest(

@@ -59,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     selectedBrandId,
     selectedBrandVersionId,
     persistenceMode,
+    isDemoWorkspace,
     user,
     session,
     signOut,
@@ -98,9 +99,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const modeLabel =
     persistenceMode === "AUTHENTICATED_SUPABASE"
       ? "Cloud Workspace"
-      : persistenceMode === "SHARED_DEMO"
-      ? "Shared Demo"
-      : "Local Browser";
+      : isDemoWorkspace
+      ? "Demo Workspace"
+      : "Workspace";
 
   const activeBrandLabel = selectedBrand
     ? selectedBrand.brandName
@@ -149,6 +150,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
             <span>Identiq</span>
           </Link>
+          {isDemoWorkspace && (
+            <Link
+              href="/login"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/12 text-[#CDEEE0] hover:bg-white/20 text-[11px] font-semibold tracking-tight transition-colors"
+            >
+              Demo Workspace
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">

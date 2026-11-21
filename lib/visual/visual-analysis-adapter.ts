@@ -338,10 +338,7 @@ export async function analyzeCreativeVisually(
   }
 
   const dedupedFindings = deduplicateVisualFindings(validatedFindings);
-  const canonicalFindings = mapVisualFindingsToCanonical(
-    dedupedFindings,
-    input.brandContext,
-  );
+  const canonicalFindings = mapVisualFindingsToCanonical(dedupedFindings);
 
   const processedOkCount = pages.filter((p) => p.status === "ok").length;
   let finalStatus: VisualAnalysisResult["status"] = "COMPLETED";
@@ -351,10 +348,6 @@ export async function analyzeCreativeVisually(
     partialPageFailureCount > 0 ||
     visionStageFailed ||
     !brandVisualContext.hasVisualKnowledge ||
-    !brandVisualContext.approved ||
-    brandVisualContext.warnings.some((warning) =>
-      /NO_APPROVED_(PALETTE|LOGOS|LOGO_REFERENCE_IMAGE|VISUAL_GUIDELINES)/.test(warning),
-    ) ||
     totalPageCount > config.maxPdfPages
   ) {
     finalStatus = "PARTIAL";

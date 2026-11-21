@@ -3,11 +3,6 @@ import {
   type EvidenceReference,
   type ReviewFinding as CanonicalReviewFinding,
 } from "../../contracts";
-import type { BrandContext } from "../../contracts";
-import {
-  collectApprovedSourceRecords,
-  isApprovedEvidenceReference,
-} from "../../governance/evidence-validation";
 import type { VisualFinding } from "../types";
 import { applyFindingReliabilityPolicy } from "../../governance/finding-policy";
 
@@ -106,49 +101,36 @@ export function deduplicateVisualFindings(
  */
 export function mapVisualFindingsToCanonical(
   visualFindings: VisualFinding[],
-  brandContext?: BrandContext,
 ): CanonicalReviewFinding[] {
-  const approvedSources = brandContext
-    ? collectApprovedSourceRecords(brandContext)
-    : undefined;
-
   return visualFindings.map((vf) => {
     const evidenceReferences: EvidenceReference[] = [];
-    const candidateReference =
+    if (
       vf.sourceReference.sourceId &&
       vf.sourceReference.sourceTitle &&
       vf.sourceReference.sourceVersion
-        ? {
-            sourceId: vf.sourceReference.sourceId,
-            sourceType: "approved_brand_knowledge" as const,
-            sourceTitle: vf.sourceReference.sourceTitle,
-            ...(vf.sourceReference.excerpt
-              ? { excerpt: vf.sourceReference.excerpt }
-              : {}),
-            ...(vf.sourceReference.pageNumber
-              ? { pageNumber: vf.sourceReference.pageNumber }
-              : {}),
-            versionId: vf.sourceReference.sourceVersion,
-          }
-        : undefined;
-    if (
-      candidateReference &&
-      approvedSources &&
-      isApprovedEvidenceReference(candidateReference, approvedSources)
     ) {
-      evidenceReferences.push(candidateReference);
+      evidenceReferences.push({
+        sourceId: vf.sourceReference.sourceId,
+        sourceType: "approved_brand_knowledge",
+        sourceTitle: vf.sourceReference.sourceTitle,
+        ...(vf.sourceReference.excerpt
+          ? { excerpt: vf.sourceReference.excerpt }
+          : {}),
+        ...(vf.sourceReference.pageNumber
+          ? { pageNumber: vf.sourceReference.pageNumber }
+          : {}),
+        ...(vf.sourceReference.sourceVersion
+          ? { versionId: vf.sourceReference.sourceVersion }
+          : {}),
+      });
     }
-
-    const mappedStatus = evidenceReferences.length
-      ? mapVisualStatusToCanonical(vf.reviewStatus)
-      : "UNVERIFIED";
 
     const candidate: CanonicalReviewFinding = {
       findingId: vf.id,
       ...(vf.ruleId ? { ruleId: vf.ruleId } : {}),
       category: mapVisualCategoryToCanonical(vf.category),
       severity: vf.severity,
-      status: mappedStatus,
+      status: mapVisualStatusToCanonical(vf.reviewStatus),
       issue: vf.title,
       description: vf.explanation,
       detectedValue: vf.observedValue,
@@ -171,15 +153,8 @@ export function mapVisualFindingsToCanonical(
       confidence: vf.confidence,
     };
 
-    const evaluated = ReviewFindingSchema.parse(
+    return ReviewFindingSchema.parse(
       applyFindingReliabilityPolicy(candidate, evidenceReferences.length > 0),
     );
-    return evidenceReferences.length
-      ? evaluated
-      : {
-          ...evaluated,
-          status: "UNVERIFIED",
-          evidenceReferences: [],
-        };
   });
 }
