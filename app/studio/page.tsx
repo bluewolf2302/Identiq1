@@ -39,6 +39,7 @@ import {
   FindingSeverity,
   ReviewFinding,
 } from "@/lib/types";
+import type { AnalysisComparison } from "@/lib/analysis/comparison";
 
 const CATEGORY_TOOLBAR: Array<{
   label: string;
@@ -68,6 +69,7 @@ function ReviewStudioInner() {
   const searchParams = useSearchParams();
   const {
     reviews,
+    session,
     activeReviewId,
     setActiveReviewId,
     toggleFindingResolved,
@@ -90,6 +92,33 @@ function ReviewStudioInner() {
     () => reviews.find((r) => r.id === activeReviewId) || reviews[0],
     [reviews, activeReviewId]
   );
+  const [comparison, setComparison] = useState<AnalysisComparison | null>(null);
+
+  useEffect(() => {
+    if (!activeReview?.id) {
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/analysis-comparisons?reviewId=${encodeURIComponent(activeReview.id)}`, {
+      headers: session?.accessToken
+        ? { Authorization: `Bearer ${session.accessToken}` }
+        : {},
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const payload = await response.json() as { comparison?: AnalysisComparison | null };
+        return payload.comparison ?? null;
+      })
+      .then((value) => {
+        if (!cancelled) setComparison(value);
+      })
+      .catch(() => {
+        if (!cancelled) setComparison(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeReview?.id, session?.accessToken]);
 
   const [domainFilter, setDomainFilter] = useState<DomainFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<"All" | FindingCategory>("All");
@@ -488,6 +517,63 @@ function ReviewStudioInner() {
               </div>
 
               {/* Resilience & Governance Pipeline Status Banner */}
+              {activeReview.coverage && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2" role="status" aria-label="Analysis coverage">
+                  {Object.entries(activeReview.coverage).map(([check, coverage]) => (
+                    <div key={check} className="rounded-xl border border-[#E7E1DA] bg-white p-3">
+                      <p className="text-[10px] uppercase tracking-wider text-[#8E8780]">
+                        {check.replace(/([A-Z])/g, " $1").trim()}
+                      </p>
+                      <p className={`mt-1 text-xs font-bold ${
+                        coverage.status === "COMPLETED"
+                          ? "text-[#15803D]"
+                          : coverage.status === "FAILED"
+                            ? "text-[#9C2740]"
+                            : coverage.status === "SKIPPED"
+                              ? "text-[#2563EB]"
+                              : "text-[#B45309]"
+                      }`}>
+                        {coverage.status}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {comparison && (
+                <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4" role="status">
+                  <p className="text-xs font-bold text-[#141414]">
+                    Re-analysis comparison · {comparison.previousRunId} → {comparison.currentRunId}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    {(["added", "removed", "changed", "unchanged"] as const).map((status) => (
+                      <span key={status} className="rounded-full border border-[#E7E1DA] bg-[#FAF8F6] px-2.5 py-1 font-semibold text-[#524E4A]">
+                        {status}: {comparison.summary[status]}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                    {comparison.findings.slice(0, 8).map((item) => (
+                      <span key={`${item.status}-${item.findingId}`} className="rounded-md bg-[#F3EDE8] px-2 py-1 text-[#524E4A]">
+                        {item.status} · {item.findingId}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeReview.analysisStatus && activeReview.analysisStatus === "FAILED" && (
+                <div role="alert" className="bg-[#F6D5DA]/60 border border-[#EBC3CA] rounded-2xl p-4 text-xs text-[#842029]">
+                  <p className="font-bold flex items-center gap-1.5 text-[#141414]">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Analysis Failed
+                  </p>
+                  <p className="mt-1 leading-relaxed">
+                    No clean pass is asserted. Review failed or unavailable coverage below.
+                  </p>
+                </div>
+              )}
+
               {activeReview.analysisStatus === "PARTIAL" && (
                 <div
                   role="status"
@@ -507,6 +593,7 @@ function ReviewStudioInner() {
                       ))}
                     </div>
                   )}
+
                 </div>
               )}
 
@@ -920,6 +1007,12 @@ function ReviewStudioInner() {
                                 {finding.description}
                               </p>
                             )}
+                            {finding.explanation && !compactDensity && (
+                              <p className="text-[11px] text-[#6B6560] leading-relaxed">
+                                <span className="font-semibold text-[#141414]">Why: </span>
+                                {finding.explanation}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
@@ -1015,6 +1108,12 @@ function ReviewStudioInner() {
                   )}
 
                   <div className="text-xs space-y-1.5">
+                    {selectedFinding.explanation && (
+                      <div>
+                        <span className="font-semibold text-[#3F3B37]">Why this is a concern: </span>
+                        <span className="text-[#141414]">{selectedFinding.explanation}</span>
+                      </div>
+                    )}
                     <div>
                       <span className="font-semibold text-[#3F3B37]">Observed: </span>
                       <span className="text-[#141414]">{selectedFinding.detectedValue}</span>

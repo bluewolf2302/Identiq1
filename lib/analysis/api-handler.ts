@@ -16,12 +16,61 @@ type AnalysisRouteDependencies = {
   orchestrator: Pick<AnalysisOrchestrator, "analyze">;
 };
 
+function createFailedAnalysisPayload(
+  frontendRequest:
+    | ReturnType<typeof adaptFrontendRequest>
+    | undefined,
+  stage: AnalysisOrchestrationError["stage"],
+) {
+  const coverage = {
+    brandContext:
+      stage === "brand-context"
+        ? { status: "FAILED" as const, reason: "Approved brand context could not be retrieved." }
+        : { status: "COMPLETED" as const },
+    deterministic:
+      stage === "deterministic"
+        ? { status: "FAILED" as const, reason: "Deterministic analysis failed." }
+        : { status: "COMPLETED" as const },
+    semanticAI:
+      stage === "ai"
+        ? { status: "FAILED" as const, reason: "AI semantic analysis is unavailable." }
+        : { status: "SKIPPED" as const },
+    visual:
+      stage === "visual" || stage === "visual-validation"
+        ? { status: "FAILED" as const, reason: "Visual creative analysis failed." }
+        : { status: "SKIPPED" as const },
+    ocr:
+      stage === "visual" || stage === "visual-validation"
+        ? { status: "FAILED" as const, reason: "OCR or visual processing could not complete." }
+        : { status: "SKIPPED" as const },
+  };
+
+  const submissionId = frontendRequest?.submissionId ?? "unknown-submission";
+  const previousAnalysisRunId = frontendRequest?.previousAnalysisRunId;
+
+  return {
+    submissionId,
+    analysisRunId: `${submissionId}-failed`,
+    ...(previousAnalysisRunId
+      ? { previousAnalysisRunId }
+      : {}),
+    analysisStatus: "FAILED" as const,
+    fallbackUsed: false,
+    complianceScore: 100,
+    providerUsed: "none",
+    summary: "The governance analysis failed and no clean pass is asserted.",
+    findings: [],
+    coverage,
+  };
+}
+
 export async function handleAnalysisRequest(
   input: unknown,
   dependencies: AnalysisRouteDependencies,
 ): Promise<{ status: number; body: unknown }> {
+  let frontendRequest: ReturnType<typeof adaptFrontendRequest> | undefined;
   try {
-    const frontendRequest = adaptFrontendRequest(input);
+    frontendRequest = adaptFrontendRequest(input);
     const backendResponse = await dependencies.orchestrator.analyze(
       frontendRequest,
     );
@@ -61,47 +110,51 @@ export async function handleAnalysisRequest(
       ) {
         return {
           status: 404,
-          body: { error: "No approved brand context was found for this submission." },
+          body: createFailedAnalysisPayload(frontendRequest, error.stage),
         };
       }
       if (error.stage === "ai") {
         return {
           status: 503,
-          body: { error: "AI semantic analysis is currently unavailable." },
+          body: createFailedAnalysisPayload(frontendRequest, error.stage),
         };
       }
       if (error.stage === "visual-validation") {
         return {
           status: 400,
-          body: { error: error.message },
+          body: createFailedAnalysisPayload(frontendRequest, error.stage),
         };
       }
       if (error.stage === "visual") {
         return {
           status: 500,
-          body: { error: "Visual creative analysis failed." },
+          body: frontendRequest
+            ? createFailedAnalysisPayload(frontendRequest, error.stage)
+            : { error: "Unable to complete brand governance analysis." },
         };
       }
       if (error.stage === "deterministic") {
         return {
           status: 500,
-          body: { error: "Deterministic governance analysis failed." },
+          body: createFailedAnalysisPayload(frontendRequest, error.stage),
         };
       }
       if (error.stage === "brand-context") {
         return {
           status: 502,
-          body: { error: "Approved brand context could not be retrieved." },
+          body: createFailedAnalysisPayload(frontendRequest, error.stage),
         };
       }
       return {
         status: 500,
-        body: { error: "Unable to complete brand governance analysis." },
+        body: createFailedAnalysisPayload(frontendRequest, error.stage),
       };
     }
     return {
       status: 500,
-      body: { error: "Unable to complete brand governance analysis." },
+      body: frontendRequest
+        ? createFailedAnalysisPayload(frontendRequest, "response-validation")
+        : { error: "Unable to complete brand governance analysis." },
     };
   }
 }

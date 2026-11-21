@@ -31,7 +31,15 @@ export class AiAnalysisService {
 
   async analyze(input: AiAnalysisInput): Promise<AiAnalysisResult> {
     const context = BrandContextSchema.safeParse(input.brandContext);
-    if (!context.success || !input.content.trim()) {
+    if (!context.success) {
+      throw new AiAnalysisUnavailableError([
+        new AiProviderError(
+          "brand-context",
+          "The approved brand context is invalid.",
+        ),
+      ]);
+    }
+    if (!input.content.trim()) {
       return { findings: [], providerUsed: "none", fallbackUsed: false };
     }
 
