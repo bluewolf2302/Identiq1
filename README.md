@@ -47,9 +47,9 @@ Instead of treating a content check as a simple pass/fail result, IdentIQ helps 
 
 | Workspace | Capabilities |
 | --- | --- |
-| **Brand Knowledge Hub** | Organise multi-brand guidelines, ingest guideline PDFs with selective OCR and conflict detection, verify provenance, and publish versioned rules. |
-| **Asset Library** | Keep approved brand references such as logos, colour references, photography, and templates together. |
-| **New Review** | Submit campaign copy, images, and PDFs for content and visual checks, including document text extraction and OCR. |
+| **Brand Knowledge Hub** | Organise multi-brand guidelines, ingest guideline PDFs with selective OCR and conflict detection, verify provenance, inspect immutable version snapshots, and publish versioned rules. |
+| **Asset Library** | Preview approved visual references and upload local/session image assets with client-side format and size validation (guideline PDFs and synced visual rules live under Brand Knowledge Hub). |
+| **New Review** | Submit campaign copy, images, and PDFs against the active brand or a selected published Knowledge Hub version snapshot, including document text extraction and OCR. |
 | **Review Studio** | Inspect findings alongside submitted content, review evidence, explore suggested replacements, and record reviewer decisions and comments. |
 | **Approvals** | Work through pending reviews and approve content or request changes. |
 | **Activity & Reports** | Follow review activity, view compliance summaries, print review dossiers, and export structured CSV data. |

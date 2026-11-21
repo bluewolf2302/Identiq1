@@ -25,7 +25,6 @@ import {
 import {
   INITIAL_ACTIVITY,
   INITIAL_ASSETS,
-  INITIAL_KNOWLEDGE,
   INITIAL_REVIEWS,
 } from "@/lib/seed-data";
 import {
@@ -70,6 +69,8 @@ import {
   ViewerProfile,
 } from "@/lib/viewer-profile";
 import { DEMO_CONFIG } from "@/lib/demo/config";
+import { getAssetPersistenceNotice } from "@/lib/asset-validation";
+import { LATEST_KNOWLEDGE_VERSION_ID } from "@/lib/knowledge-versions";
 
 interface ToastMessage {
   id: string;
@@ -92,11 +93,13 @@ export interface UserOrganisationMembership {
 }
 
 export interface IdentiqContextValue {
+  hydrated: boolean;
   reviews: ReviewSubmission[];
   knowledge: KnowledgeEntry[];
   workspaceBrands: WorkspaceBrand[];
   selectedBrandId: string | null;
   selectedBrand: WorkspaceBrand | null;
+  selectedBrandVersionId: string;
   versionSnapshots: KnowledgeVersionSnapshot[];
   knowledgeLoading: boolean;
   knowledgeMutating: boolean;
@@ -128,6 +131,7 @@ export interface IdentiqContextValue {
   reloadFromPersistence: () => Promise<void>;
   refreshBrands: (overrideOrgId?: string) => Promise<void>;
   selectBrand: (targetBrandId: string) => Promise<void>;
+  selectBrandVersion: (versionId: string) => void;
   createWorkspaceBrand: (input: {
     brandName: string;
     description?: string;
@@ -619,6 +623,9 @@ function mapManagedEntryToUiEntry(entry: ManagedKnowledgeEntry): KnowledgeEntry 
 function mapSnapshotToUiSnapshot(
   snap: ContextBrandVersionSnapshot
 ): KnowledgeVersionSnapshot {
+  const mappedEntries = Array.isArray(snap.entries)
+    ? snap.entries.map(mapManagedEntryToUiEntry)
+    : [];
   return {
     snapshotId: snap.snapshotId,
     brandId: snap.brandId,
@@ -627,8 +634,9 @@ function mapSnapshotToUiSnapshot(
     versionNumber: snap.versionNumber,
     publishedAt: snap.publishedAt,
     publishedBy: snap.publishedBy,
-    entryCount: Array.isArray(snap.entries) ? snap.entries.length : 0,
+    entryCount: mappedEntries.length,
     note: snap.note,
+    entries: mappedEntries,
   };
 }
 
@@ -653,13 +661,24 @@ function mapBrandRecordToWorkspaceBrand(
 
 export function IdentiqProvider({ children }: { children: React.ReactNode }) {
   const [reviews, setReviews] = useState<ReviewSubmission[]>(INITIAL_REVIEWS);
-  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>(INITIAL_KNOWLEDGE);
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
   const [workspaceBrands, setWorkspaceBrands] = useState<WorkspaceBrand[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
+  const [selectedBrandVersionId, setSelectedBrandVersionId] = useState<string>(
+    LATEST_KNOWLEDGE_VERSION_ID
+  );
   const [versionSnapshots, setVersionSnapshots] = useState<KnowledgeVersionSnapshot[]>([]);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeMutating, setKnowledgeMutating] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  const knowledgeReqGenRef = useRef(0);
+  const knowledgeAbortRef = useRef<AbortController | null>(null);
+  const brandsReqGenRef = useRef(0);
+  const brandsAbortRef = useRef<AbortController | null>(null);
+  const selectedBrandIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedBrandIdRef.current = selectedBrandId;
+  }, [selectedBrandId]);
   const [assets, setAssets] = useState<BrandAsset[]>(INITIAL_ASSETS);
   const [activities, setActivities] = useState<ActivityEvent[]>(INITIAL_ACTIVITY);
   const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_SETTINGS);
@@ -2024,6 +2043,11 @@ const prevActivities = activities;
   const loadKnowledgeForBrand = useCallback(
     async (targetBrandId: string, overrideOrgId?: string) => {
       if (!targetBrandId) return;
+      const reqGen = ++knowledgeReqGenRef.current;
+      knowledgeAbortRef.current?.abort();
+      const controller = new AbortController();
+      knowledgeAbortRef.current = controller;
+
       const orgParam = getEffectiveOrgId(overrideOrgId);
       setKnowledgeLoading(true);
       setKnowledgeError(null);
@@ -2036,6 +2060,7 @@ const prevActivities = activities;
         const res = await fetch(`/api/knowledge?${params.toString()}`, {
           headers: buildKnowledgeAuthHeaders(),
           cache: "no-store",
+          signal: controller.signal,
         });
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
@@ -2043,6 +2068,7 @@ const prevActivities = activities;
           entries?: ManagedKnowledgeEntry[];
           snapshots?: ContextBrandVersionSnapshot[];
         };
+        if (knowledgeReqGenRef.current !== reqGen) return;
         if (!res.ok) {
           throw new Error(body.error || "Failed to load brand knowledge.");
         }
@@ -2054,6 +2080,12 @@ const prevActivities = activities;
           : [];
         setKnowledge(entries);
         setVersionSnapshots(snapshots);
+        setSelectedBrandVersionId((currentVer) =>
+          currentVer === LATEST_KNOWLEDGE_VERSION_ID ||
+          snapshots.some((s) => s.versionId === currentVer)
+            ? currentVer
+            : LATEST_KNOWLEDGE_VERSION_ID
+        );
         if (body.brand) {
           const mappedBrand = mapBrandRecordToWorkspaceBrand(body.brand);
           setWorkspaceBrands((prev) => {
@@ -2066,11 +2098,19 @@ const prevActivities = activities;
           });
         }
       } catch (err) {
+        if (
+          (err instanceof DOMException && err.name === "AbortError") ||
+          knowledgeReqGenRef.current !== reqGen
+        ) {
+          return;
+        }
         const message =
           err instanceof Error ? err.message : "Failed to load brand knowledge.";
         setKnowledgeError(message);
       } finally {
-        setKnowledgeLoading(false);
+        if (knowledgeReqGenRef.current === reqGen) {
+          setKnowledgeLoading(false);
+        }
       }
     },
     [buildKnowledgeAuthHeaders, getEffectiveOrgId]
@@ -2078,14 +2118,24 @@ const prevActivities = activities;
 
   const refreshBrands = useCallback(
     async (overrideOrgId?: string) => {
+      const refreshGen = ++brandsReqGenRef.current;
+      brandsAbortRef.current?.abort();
+      const controller = new AbortController();
+      brandsAbortRef.current = controller;
+
       if (
         persistenceMode === "CONFIGURED_UNAUTHENTICATED" ||
         persistenceMode === "AUTHENTICATED_NO_ORGANISATION"
       ) {
+        knowledgeReqGenRef.current += 1;
+        knowledgeAbortRef.current?.abort();
         setWorkspaceBrands([]);
         setSelectedBrandId(null);
+        setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
         setKnowledge([]);
         setVersionSnapshots([]);
+        setKnowledgeError(null);
+        setKnowledgeLoading(false);
         return;
       }
 
@@ -2097,11 +2147,13 @@ const prevActivities = activities;
         const res = await fetch(`/api/brands?${params.toString()}`, {
           headers: buildKnowledgeAuthHeaders(),
           cache: "no-store",
+          signal: controller.signal,
         });
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
           brands?: WorkspaceBrandRecord[];
         };
+        if (brandsReqGenRef.current !== refreshGen) return;
         if (!res.ok) {
           throw new Error(body.error || "Failed to load brands.");
         }
@@ -2114,14 +2166,20 @@ const prevActivities = activities;
           typeof window !== "undefined"
             ? localStorage.getItem(BRAND_STORAGE_KEY)
             : null;
+        const currentSelected = selectedBrandIdRef.current;
         const preferred =
-          brands.find((b) => b.brandId === selectedBrandId) ||
+          brands.find((b) => b.brandId === currentSelected) ||
           brands.find((b) => b.brandId === storedBrandId) ||
           brands.find((b) => !b.isSample) ||
           brands[0] ||
           null;
 
         if (preferred) {
+          if (preferred.brandId !== currentSelected) {
+            setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+            setKnowledge([]);
+            setVersionSnapshots([]);
+          }
           setSelectedBrandId(preferred.brandId);
           if (typeof window !== "undefined") {
             localStorage.setItem(BRAND_STORAGE_KEY, preferred.brandId);
@@ -2139,21 +2197,27 @@ const prevActivities = activities;
           await loadKnowledgeForBrand(preferred.brandId, orgParam);
         } else {
           setSelectedBrandId(null);
+          setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
           setKnowledge([]);
           setVersionSnapshots([]);
+          setKnowledgeLoading(false);
         }
       } catch (err) {
+        if (
+          (err instanceof DOMException && err.name === "AbortError") ||
+          brandsReqGenRef.current !== refreshGen
+        ) {
+          return;
+        }
         const message =
           err instanceof Error ? err.message : "Failed to load brands.";
         setKnowledgeError(message);
-      } finally {
         setKnowledgeLoading(false);
       }
     },
     [
       persistenceMode,
       organisationId,
-      selectedBrandId,
       getEffectiveOrgId,
       buildKnowledgeAuthHeaders,
       tenancyManager,
@@ -2178,8 +2242,17 @@ const prevActivities = activities;
 
   const selectBrand = useCallback(
     async (targetBrandId: string) => {
+      if (!targetBrandId) return;
+      const isChangingBrand = targetBrandId !== selectedBrandIdRef.current;
+      selectedBrandIdRef.current = targetBrandId;
       const target = workspaceBrands.find((b) => b.brandId === targetBrandId);
       setSelectedBrandId(targetBrandId);
+      setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+      if (isChangingBrand) {
+        setKnowledge([]);
+        setVersionSnapshots([]);
+      }
+      setKnowledgeError(null);
       if (typeof window !== "undefined") {
         localStorage.setItem(BRAND_STORAGE_KEY, targetBrandId);
       }
@@ -2204,6 +2277,10 @@ const prevActivities = activities;
       loadKnowledgeForBrand,
     ]
   );
+
+  const selectBrandVersion = useCallback((versionId: string) => {
+    setSelectedBrandVersionId(versionId.trim() || LATEST_KNOWLEDGE_VERSION_ID);
+  }, []);
 
   const createWorkspaceBrand = useCallback(
     async (input: {
@@ -2649,14 +2726,21 @@ const prevActivities = activities;
   };
 
   const addAsset = (asset: BrandAsset) => {
+    const notice = getAssetPersistenceNotice(persistenceMode);
     setAssets((prev) => [asset, ...prev]);
     logActivity({
       actor: settings.reviewerName,
-      action: "uploaded brand asset:",
+      action:
+        notice.scope === "session_only"
+          ? "added session brand asset:"
+          : "uploaded brand asset:",
       target: asset.name,
       type: "asset_uploaded",
     });
-    notify(`Added "${asset.name}" to Asset Library`);
+    notify(
+      `Added "${asset.name}" ${notice.addToastSuffix}`,
+      notice.scope === "session_only" ? "info" : "success"
+    );
   };
 
   const deleteAsset = (id: string) => {
@@ -2702,7 +2786,6 @@ const prevActivities = activities;
     } else {
       localStorage.removeItem(STORAGE_KEY);
       setReviews(INITIAL_REVIEWS);
-      setKnowledge(INITIAL_KNOWLEDGE);
       setAssets(INITIAL_ASSETS);
       setActivities(INITIAL_ACTIVITY);
       setSettings({
@@ -2711,6 +2794,7 @@ const prevActivities = activities;
         reviewerRole: activeIdentity.role,
       });
       setActiveReviewId(INITIAL_REVIEWS[0].id);
+      void refreshBrands();
       notify("Sample workspace data restored");
     }
   };
@@ -2857,11 +2941,13 @@ const prevActivities = activities;
   return (
     <IdentiqContext.Provider
       value={{
+        hydrated,
         reviews,
         knowledge,
         workspaceBrands,
         selectedBrandId,
         selectedBrand,
+        selectedBrandVersionId,
         versionSnapshots,
         knowledgeLoading,
         knowledgeMutating,
@@ -2889,6 +2975,7 @@ const prevActivities = activities;
         reloadFromPersistence,
         refreshBrands,
         selectBrand,
+        selectBrandVersion,
         createWorkspaceBrand,
         saveKnowledgeEntry,
         publishKnowledgeEntry,

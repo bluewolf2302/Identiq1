@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
+  BookOpen,
   CheckCircle2,
   FileText,
+  History,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
@@ -19,6 +22,14 @@ import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
 import { GUIDELINE_COLLECTIONS } from "@/lib/seed-data";
 import { getClientAuthToken } from "@/lib/supabase/client";
 import { parseAnalysisResponsePayload } from "@/lib/analysis/api-adapters";
+import {
+  LATEST_KNOWLEDGE_VERSION_ID,
+  resolveDisplayedKnowledgeEntries,
+} from "@/lib/knowledge-versions";
+import {
+  buildKnowledgeHubHref,
+  resolveNewReviewBrandAndVersion,
+} from "@/lib/workspace-navigation";
 import {
   AnalysisResponsePayload,
   ContentType,
@@ -62,13 +73,36 @@ function estimatePdfPageCountFromText(rawLatin1: string): number | undefined {
   return matches && matches.length > 0 ? matches.length : undefined;
 }
 
-export default function NewReviewPage() {
+const REVIEW_PASTEL_THEMES: PastelTheme[] = [
+  "pink",
+  "peach",
+  "lavender",
+  "mint",
+  "blue",
+  "yellow",
+];
+
+function pickPastelTheme(seed: string): PastelTheme {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return REVIEW_PASTEL_THEMES[hash % REVIEW_PASTEL_THEMES.length]!;
+}
+
+function NewReviewContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
+    hydrated,
     knowledge,
     workspaceBrands,
     selectedBrandId,
+    selectedBrandVersionId,
+    versionSnapshots,
+    knowledgeLoading,
     selectBrand,
+    selectBrandVersion,
     addReview,
     viewerProfile,
     user,
@@ -81,10 +115,15 @@ export default function NewReviewPage() {
   } = useIdentiq();
   const actor = resolveActiveActorIdentity({ viewerProfile, authUser: user });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const syncedQueryBrandRef = useRef<string | null>(null);
+
+  const queryBrandId = searchParams.get("brandId");
+  const queryBrandVersionId = searchParams.get("brandVersionId");
 
   const [title, setTitle] = useState("");
   const [contentType, setContentType] = useState<ContentType>("Campaign Copy");
   const [chosenBrandId, setChosenBrandId] = useState<string>("");
+  const [chosenVersionId, setChosenVersionId] = useState<string>("");
   const [guidelineCollection, setGuidelineCollection] = useState(GUIDELINE_COLLECTIONS[0]);
   const [textContent, setTextContent] = useState("");
   const [assetName, setAssetName] = useState<string | undefined>(undefined);
@@ -99,10 +138,39 @@ export default function NewReviewPage() {
   const [stage, setStage] = useState<SubmissionStage>("idle");
   const [isLoadingSample, setIsLoadingSample] = useState(false);
 
-  const activeBrandChoiceId =
-    chosenBrandId || selectedBrandId || workspaceBrands[0]?.brandId || "";
-  const activeBrandChoice =
-    workspaceBrands.find((b) => b.brandId === activeBrandChoiceId) ?? null;
+  // Sync deep-linked ?brandId= with IdentiqProvider once brands are hydrated
+  useEffect(() => {
+    if (!hydrated || !queryBrandId || workspaceBrands.length === 0) return;
+    if (syncedQueryBrandRef.current === queryBrandId) return;
+    const matched = workspaceBrands.find((b) => b.brandId === queryBrandId);
+    syncedQueryBrandRef.current = queryBrandId;
+    if (matched && matched.brandId !== selectedBrandId) {
+      void selectBrand(matched.brandId);
+    }
+  }, [hydrated, queryBrandId, workspaceBrands, selectedBrandId, selectBrand]);
+
+  const fallbackRequestedVersion =
+    queryBrandVersionId ||
+    (!chosenBrandId && selectedBrandVersionId !== LATEST_KNOWLEDGE_VERSION_ID
+      ? selectedBrandVersionId
+      : "");
+
+  const resolvedNav = resolveNewReviewBrandAndVersion({
+    requestedBrandId: queryBrandId,
+    requestedVersionId: chosenVersionId ? chosenVersionId : fallbackRequestedVersion,
+    chosenBrandId,
+    selectedBrandId,
+    workspaceBrands,
+    snapshots: versionSnapshots,
+  });
+
+  const activeBrandChoiceId = resolvedNav.activeBrandId;
+  const activeBrandChoice = resolvedNav.activeBrand;
+  const effectiveVersionId = chosenVersionId || resolvedNav.effectiveVersionId;
+
+  const brandSnapshots = versionSnapshots.filter(
+    (snap) => snap.brandId === activeBrandChoiceId,
+  );
 
   const isSubmitting = stage !== "idle" && stage !== "complete";
 
@@ -210,11 +278,17 @@ export default function NewReviewPage() {
       };
       setTitle("Teralune Summer Refreshment Advertisement");
       setContentType("Campaign Copy");
-      setChosenBrandId("demo-brand-teralune");
-      setGuidelineCollection("Teralune Brand Identity & AI Guidelines v1.0");
-      if (workspaceBrands.some((b) => b.brandId === "demo-brand-teralune")) {
+
+      const hasTeraluneBrand = workspaceBrands.some(
+        (b) => b.brandId === "demo-brand-teralune",
+      );
+      if (hasTeraluneBrand) {
+        setChosenBrandId("demo-brand-teralune");
+        setChosenVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+        setGuidelineCollection("Teralune Brand Identity & AI Guidelines v1.0");
         void selectBrand("demo-brand-teralune");
       }
+
       setTextContent(""); // Let OCR + PDF text extraction read the actual PDF!
       setAssetName(data.fileName);
       setAssetMimeType(data.mimeType);
@@ -222,7 +296,12 @@ export default function NewReviewPage() {
       setAssetBase64(data.base64Data);
       setAssetPreviewUrl(undefined);
       setPdfEstimatedPages(1);
-      notify("Attached Teralune test-advertisement.pdf for multimodal review", "info");
+      notify(
+        hasTeraluneBrand
+          ? "Attached Teralune test-advertisement.pdf for multimodal review"
+          : `Attached ${data.fileName} to evaluate against ${activeBrandChoice?.brandName || "your active brand"}`,
+        "info",
+      );
     } catch (err) {
       setFileError(
         err instanceof Error ? err.message : "Failed to load Teralune sample PDF.",
@@ -264,16 +343,29 @@ export default function NewReviewPage() {
 
     try {
       const submissionId = `submission-${crypto.randomUUID()}`;
-      const approvedRules = knowledge
-        .filter((k) => k.status === "Approved")
+      const isHistoricalVersion =
+        Boolean(effectiveVersionId) &&
+        effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID;
+
+      const resolvedDisplay = resolveDisplayedKnowledgeEntries({
+        liveEntries: knowledge,
+        snapshots: brandSnapshots,
+        selectedVersionId: effectiveVersionId,
+      });
+
+      const approvedRules = resolvedDisplay.entries
+        .filter((k) => isHistoricalVersion || k.status === "Approved")
         .map((k) => `${k.title}: ${k.content}`);
+
+      const versionLabel = isHistoricalVersion
+        ? effectiveVersionId
+        : activeBrandChoice?.latestPublishedVersion;
+
       const effectiveGuidelineLabel = activeBrandChoice
-        ? activeBrandChoice.brandId === "demo-brand-teralune"
+        ? activeBrandChoice.brandId === "demo-brand-teralune" && !isHistoricalVersion
           ? "Teralune Brand Identity & AI Guidelines v1.0"
           : `${activeBrandChoice.brandName}${
-              activeBrandChoice.latestPublishedVersion
-                ? ` (${activeBrandChoice.latestPublishedVersion})`
-                : ""
+              versionLabel ? ` (${versionLabel})` : ""
             }`
         : guidelineCollection;
 
@@ -294,6 +386,7 @@ export default function NewReviewPage() {
           contentType,
           guidelineCollection: effectiveGuidelineLabel,
           ...(submissionBrandId ? { brandId: submissionBrandId } : {}),
+          ...(isHistoricalVersion ? { brandVersionId: effectiveVersionId } : {}),
           ...(persistenceMode === "AUTHENTICATED_SUPABASE" && organisationId
             ? { organisationId }
             : {}),
@@ -352,7 +445,6 @@ export default function NewReviewPage() {
       }
 
       setStage("complete");
-      const themes: PastelTheme[] = ["pink", "peach", "lavender", "mint", "blue", "yellow"];
       const newId = data.submissionId ?? submissionId;
       const resolvedTextContent =
         textContent.trim() || data.visualSummary?.extractedText || "";
@@ -360,11 +452,11 @@ export default function NewReviewPage() {
         ?.previewDataUrl;
 
       const resolvedBrandLabel = activeBrandChoice
-        ? activeBrandChoice.brandId === "demo-brand-teralune"
+        ? activeBrandChoice.brandId === "demo-brand-teralune" && !isHistoricalVersion
           ? "Teralune Brand Identity & AI Guidelines v1.0"
           : `${activeBrandChoice.brandName}${
-              data.brandVersionId || activeBrandChoice.latestPublishedVersion
-                ? ` (${data.brandVersionId || activeBrandChoice.latestPublishedVersion})`
+              data.brandVersionId || versionLabel
+                ? ` (${data.brandVersionId || versionLabel})`
                 : ""
             }`
         : guidelineCollection;
@@ -373,7 +465,11 @@ export default function NewReviewPage() {
         id: newId,
         brandId: data.brandId ?? submissionBrandId,
         brandName: data.brandName ?? activeBrandChoice?.brandName ?? brandName ?? undefined,
-        brandVersionId: data.brandVersionId ?? activeBrandChoice?.latestPublishedVersion,
+        brandVersionId:
+          data.brandVersionId ??
+          (isHistoricalVersion
+            ? effectiveVersionId
+            : activeBrandChoice?.latestPublishedVersion),
         title: title.trim(),
         contentType,
         guidelineCollection: resolvedBrandLabel,
@@ -387,7 +483,7 @@ export default function NewReviewPage() {
         assetUrl: assetPreviewUrl ?? firstPagePreview,
         assetName,
         findings: data.findings,
-        pastelTheme: themes[Math.floor(Math.random() * themes.length)],
+        pastelTheme: pickPastelTheme(newId),
         providerUsed: data.providerUsed,
         fallbackUsed: data.fallbackUsed,
         analysisStatus: data.analysisStatus ?? "COMPLETED",
@@ -426,20 +522,38 @@ export default function NewReviewPage() {
             Submit Content for Review
           </h1>
         </div>
-        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#CDEEE0]/70 border border-[#BAE0D0] text-xs font-semibold text-[#14532D]">
+        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#CDEEE0]/70 border border-[#BAE0D0] text-xs font-semibold text-[#14532D] max-w-full">
           <ShieldCheck className="w-4 h-4 shrink-0" />
-          <span>
+          <span className="truncate">
             Active Brand:{" "}
             {activeBrandChoice
               ? `${activeBrandChoice.brandName}${
-                  activeBrandChoice.latestPublishedVersion
+                  effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID
+                    ? ` · Snapshot ${effectiveVersionId}`
+                    : activeBrandChoice.latestPublishedVersion
                     ? ` · ${activeBrandChoice.latestPublishedVersion}`
                     : ""
                 }`
-              : guidelineCollection}
+              : hydrated
+              ? guidelineCollection
+              : "Loading brand..."}
           </span>
         </div>
       </div>
+
+      {/* Query Handoff Fallback Warning */}
+      {(resolvedNav.queryBrandWarning || resolvedNav.queryVersionWarning) && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 bg-[#FFF4E5] border border-[#FFE2BA] text-[#78350F] px-4 py-3 rounded-2xl text-xs"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
+          <div className="space-y-0.5">
+            {resolvedNav.queryBrandWarning && <p>{resolvedNav.queryBrandWarning}</p>}
+            {resolvedNav.queryVersionWarning && <p>{resolvedNav.queryVersionWarning}</p>}
+          </div>
+        </div>
+      )}
 
       {/* Quick Teralune Multimodal Test Fixture Loader */}
       <div className="bg-[#F3EDE8] border border-[#E7E1DA] rounded-[22px] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -464,23 +578,42 @@ export default function NewReviewPage() {
         </button>
       </div>
 
-      {/* Main Form */}
-      {persistenceMode === "AUTHENTICATED_SUPABASE" && !brandId && (
-        <div
-          role="alert"
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFF4E5] border border-[#FFE2BA] text-[#8C4A00] px-4 py-3.5 rounded-2xl text-xs font-medium"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <AlertCircle className="w-4 h-4 shrink-0 text-[#D97706]" />
-            <div>
-              <strong className="font-semibold text-[#78350F]">No Active Brand Profile Configured</strong>
-              <p className="text-[11px] text-[#92400E] mt-0.5">
-                This organisation has no resolved primary brand. Please configure a brand in your organisation settings before submitting reviews for governance.
-              </p>
+      {/* Missing Active Brand Alert in Authenticated Mode */}
+      {hydrated &&
+        persistenceMode === "AUTHENTICATED_SUPABASE" &&
+        !activeBrandChoice?.brandId &&
+        !brandId && (
+          <div
+            role="alert"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFF4E5] border border-[#FFE2BA] text-[#8C4A00] px-4 py-3.5 rounded-2xl text-xs font-medium"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 shrink-0 text-[#D97706]" />
+              <div>
+                <strong className="font-semibold text-[#78350F]">
+                  No Active Brand Profile Configured
+                </strong>
+                <p className="text-[11px] text-[#92400E] mt-0.5">
+                  This organisation has no resolved primary brand yet. Create a brand in Knowledge Hub or switch organisation in Settings before submitting reviews.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href="/knowledge-hub"
+                className="px-3.5 py-1.5 rounded-full bg-white border border-[#E7E1DA] text-xs font-semibold text-[#141414]"
+              >
+                Knowledge Hub
+              </Link>
+              <Link
+                href="/settings"
+                className="px-3.5 py-1.5 rounded-full bg-[#141414] text-white text-xs font-semibold"
+              >
+                Settings
+              </Link>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       <form
         onSubmit={handleSubmit}
@@ -552,7 +685,7 @@ export default function NewReviewPage() {
               htmlFor="guideline-collection"
               className="block text-xs font-semibold text-[#141414] mb-1.5"
             >
-              Brand / Active Knowledge Version
+              Brand Governance Profile
             </label>
             {workspaceBrands.length > 0 ? (
               <select
@@ -561,6 +694,8 @@ export default function NewReviewPage() {
                 onChange={(e) => {
                   const nextId = e.target.value;
                   setChosenBrandId(nextId);
+                  setChosenVersionId(LATEST_KNOWLEDGE_VERSION_ID);
+                  selectBrandVersion(LATEST_KNOWLEDGE_VERSION_ID);
                   void selectBrand(nextId);
                 }}
                 disabled={isSubmitting}
@@ -595,10 +730,69 @@ export default function NewReviewPage() {
             )}
             {activeBrandChoice && activeBrandChoice.publishedEntryCount === 0 && (
               <p className="text-[11px] text-[#92400E] mt-1.5">
-                No published Knowledge Hub rules yet for {activeBrandChoice.brandName}. Publish rules in Knowledge Hub for full enforcement.
+                No published Knowledge Hub rules yet for {activeBrandChoice.brandName}.{" "}
+                <Link
+                  href={buildKnowledgeHubHref({ brandId: activeBrandChoice.brandId })}
+                  className="underline font-semibold text-[#141414]"
+                >
+                  Open Knowledge Hub
+                </Link>{" "}
+                to publish rules for full enforcement.
               </p>
             )}
           </div>
+
+          {workspaceBrands.length > 0 && activeBrandChoice && (
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label
+                  htmlFor="brand-version-select"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#141414]"
+                >
+                  <History className="w-3.5 h-3.5 text-[#524E4A]" />
+                  Guideline Version Snapshot
+                </label>
+                <Link
+                  href={buildKnowledgeHubHref({ brandId: activeBrandChoice.brandId })}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#524E4A] hover:text-[#141414]"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  Inspect rules in Knowledge Hub
+                </Link>
+              </div>
+              <select
+                id="brand-version-select"
+                value={effectiveVersionId}
+                onChange={(e) => {
+                  const nextVersion = e.target.value;
+                  setChosenVersionId(nextVersion);
+                  selectBrandVersion(nextVersion);
+                }}
+                disabled={isSubmitting || knowledgeLoading}
+                className="w-full px-4 py-3 rounded-2xl border border-[#E7E1DA] bg-[#FAF8F6] text-sm text-[#141414] focus:outline-none focus:bg-white focus:border-[#141414]"
+              >
+                <option value={LATEST_KNOWLEDGE_VERSION_ID}>
+                  Latest Published Rules ({activeBrandChoice.publishedEntryCount} published ·{" "}
+                  {activeBrandChoice.latestPublishedVersion || "live"})
+                </option>
+                {brandSnapshots.map((snap) => (
+                  <option key={snap.versionId} value={snap.versionId}>
+                    Snapshot {snap.versionId} ({snap.entryCount}{" "}
+                    {snap.entryCount === 1 ? "rule" : "rules"} · {snap.publishedAt.slice(0, 10)})
+                  </option>
+                ))}
+              </select>
+              {effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID && (
+                <p className="text-[11px] text-[#524E4A] mt-1.5">
+                  This review will evaluate against immutable historical snapshot{" "}
+                  <span className="font-mono font-semibold text-[#141414]">
+                    {effectiveVersionId}
+                  </span>
+                  .
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* File Upload Dropzone */}
@@ -662,7 +856,7 @@ export default function NewReviewPage() {
                 )}
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#141414] truncate">{assetName}</p>
-                  <p className="text-[11px] text-[#14532D] flex flex-wrap items-center gap-1.5">
+                  <p className="text-[11px] text-[#14532D] flex flex-wrap items-center gap-1.5 tabular-nums">
                     <CheckCircle2 className="w-3 h-3 shrink-0" />
                     <span>{assetMimeType || "Unknown MIME"}</span>
                     {assetSizeBytes !== undefined && (
@@ -752,9 +946,13 @@ export default function NewReviewPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-[#E7E1DA]">
           <p className="text-xs text-[#6B6560]">
             Brand:{" "}
-            <strong className="text-[#141414]">
+            <strong className="text-[#141414] tabular-nums">
               {activeBrandChoice
-                ? `${activeBrandChoice.brandName} (${activeBrandChoice.publishedEntryCount} published)`
+                ? `${activeBrandChoice.brandName} (${activeBrandChoice.publishedEntryCount} published${
+                    effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID
+                      ? ` · ${effectiveVersionId}`
+                      : ""
+                  })`
                 : brandName
                 ? `${brandName} (${guidelineCollection})`
                 : guidelineCollection}
@@ -788,3 +986,20 @@ export default function NewReviewPage() {
     </div>
   );
 }
+
+export default function NewReviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-pulse">
+          <div className="h-8 w-64 rounded-full bg-[#E7E1DA]" />
+          <div className="h-20 rounded-[22px] bg-[#F3EDE8]" />
+          <div className="h-96 rounded-[26px] bg-white border border-[#E7E1DA]" />
+        </div>
+      }
+    >
+      <NewReviewContent />
+    </Suspense>
+  );
+}
+

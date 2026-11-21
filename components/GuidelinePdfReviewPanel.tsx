@@ -102,6 +102,7 @@ export function GuidelinePdfReviewPanel() {
   const {
     selectedBrandId,
     selectedBrand,
+    persistenceMode,
     getKnowledgeRequestContext,
     reloadSelectedBrandKnowledge,
     notify,
@@ -151,6 +152,8 @@ export function GuidelinePdfReviewPanel() {
     useState<KnowledgeSection>("guidelines");
   const [addingManual, setAddingManual] = useState(false);
   const pageTextRefs = useRef(new Map<number, HTMLPreElement>());
+  const sessionsReqGenRef = useRef(0);
+  const sessionsAbortRef = useRef<AbortController | null>(null);
 
   const syncDraftsForSessions = useCallback(
     (loadedSessions: GuidelineDocumentSession[]) => {
@@ -170,11 +173,19 @@ export function GuidelinePdfReviewPanel() {
   );
 
   const loadSessions = useCallback(async () => {
+    const reqGen = ++sessionsReqGenRef.current;
+    sessionsAbortRef.current?.abort();
+
     if (!selectedBrandId) {
       setSessions([]);
       setActiveDocId("");
+      setLoadingSessions(false);
+      setLoadError("");
       return;
     }
+
+    const controller = new AbortController();
+    sessionsAbortRef.current = controller;
     const { organisationId, headers } = getKnowledgeRequestContext();
     setLoadingSessions(true);
     setLoadError("");
@@ -186,11 +197,13 @@ export function GuidelinePdfReviewPanel() {
       const res = await fetch(`/api/guidelines/documents?${params.toString()}`, {
         headers,
         cache: "no-store",
+        signal: controller.signal,
       });
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
         sessions?: GuidelineDocumentSession[];
       };
+      if (sessionsReqGenRef.current !== reqGen) return;
       if (!res.ok) {
         throw new Error(body.error || "Unable to load saved guideline sessions.");
       }
@@ -203,25 +216,38 @@ export function GuidelinePdfReviewPanel() {
           : list[0]?.documentId || "",
       );
     } catch (err) {
+      if (
+        (err instanceof DOMException && err.name === "AbortError") ||
+        sessionsReqGenRef.current !== reqGen
+      ) {
+        return;
+      }
       setLoadError(
         err instanceof Error
           ? err.message
           : "Unable to load saved guideline sessions.",
       );
     } finally {
-      setLoadingSessions(false);
+      if (sessionsReqGenRef.current === reqGen) {
+        setLoadingSessions(false);
+      }
     }
   }, [selectedBrandId, getKnowledgeRequestContext, syncDraftsForSessions]);
 
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
-      if (active) {
-        void loadSessions();
-      }
+      if (!active) return;
+      setSessions([]);
+      setActiveDocId("");
+      setSelectedPassage(null);
+      setUploadError("");
+      setDuplicateInfo(null);
+      void loadSessions();
     });
     return () => {
       active = false;
+      sessionsAbortRef.current?.abort();
     };
   }, [loadSessions]);
 
@@ -772,10 +798,38 @@ export function GuidelinePdfReviewPanel() {
               accept="application/pdf,.pdf"
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
+                setDuplicateInfo(null);
+                if (!file) {
+                  setSelectedFile(null);
+                  setUploadError("");
+                  return;
+                }
+                const lower = file.name.toLowerCase();
+                if (!lower.endsWith(".pdf") || (file.type && file.type !== "application/pdf")) {
+                  setSelectedFile(null);
+                  setUploadError(
+                    `Unsupported file "${file.name}". Please choose a valid .pdf guideline document.`,
+                  );
+                  e.target.value = "";
+                  return;
+                }
+                if (file.size === 0) {
+                  setSelectedFile(null);
+                  setUploadError("The selected PDF file is empty (0 bytes).");
+                  e.target.value = "";
+                  return;
+                }
+                if (file.size > 20 * 1024 * 1024) {
+                  setSelectedFile(null);
+                  setUploadError(
+                    "The selected PDF exceeds the 20 MB guideline upload limit.",
+                  );
+                  e.target.value = "";
+                  return;
+                }
                 setSelectedFile(file);
                 setUploadError("");
-                setDuplicateInfo(null);
-                if (file && !docTitleInput.trim()) {
+                if (!docTitleInput.trim()) {
                   setDocTitleInput(defaultTitleFromFileName(file.name));
                 }
               }}
@@ -833,7 +887,12 @@ export function GuidelinePdfReviewPanel() {
             </div>
           )}
 
-          {sessions.length > 0 ? (
+          {loadingSessions && sessions.length === 0 ? (
+            <div className="bg-white border border-[#E7E1DA] rounded-2xl p-5 space-y-3 animate-pulse">
+              <div className="h-3.5 w-44 rounded-full bg-[#F3EDE8]" />
+              <div className="h-9 w-full rounded-xl bg-[#FAF8F6]" />
+            </div>
+          ) : sessions.length > 0 ? (
             <div className="bg-white border border-[#E7E1DA] rounded-2xl p-4 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <label
@@ -883,11 +942,16 @@ export function GuidelinePdfReviewPanel() {
             <div className="rounded-[24px] border border-[#E7E1DA] bg-white p-8 text-center">
               <FileText className="mx-auto h-7 w-7 text-[#8E8780]" />
               <p className="mt-3 text-sm font-semibold text-[#141414]">
-                No guideline PDFs staged for{" "}
-                {selectedBrand?.brandName || "this brand"} yet
+                {!selectedBrandId
+                  ? persistenceMode === "CONFIGURED_UNAUTHENTICATED"
+                    ? "Sign in or switch to Demo mode to inspect guideline PDFs"
+                    : "Select or create a brand to stage guideline PDFs"
+                  : `No guideline PDFs staged for ${selectedBrand?.brandName || "this brand"} yet`}
               </p>
               <p className="mt-1 text-xs text-[#6B6560]">
-                Upload a guideline PDF on the left to extract candidate rules, facts, colours, and terminology.
+                {!selectedBrandId
+                  ? "Guideline extraction sessions are strictly scoped to the selected brand profile."
+                  : "Upload a guideline PDF on the left to extract candidate rules, facts, colours, and terminology."}
               </p>
             </div>
           )}

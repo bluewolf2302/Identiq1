@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   AlertTriangle,
@@ -15,9 +16,12 @@ import {
   FileCheck2,
   FileText,
   History,
+  Layers,
   Loader2,
+  LogIn,
   MessageSquareQuote,
   Palette,
+  Play,
   Plus,
   Search,
   ShieldCheck,
@@ -27,6 +31,16 @@ import {
 } from "lucide-react";
 import { useIdentiq } from "@/components/IdentiqProvider";
 import { GuidelinePdfReviewPanel } from "@/components/GuidelinePdfReviewPanel";
+import {
+  countEntriesBySection,
+  deriveKnowledgeCounts,
+  filterKnowledgeEntries,
+  getEntryPublicationStatus,
+  LATEST_KNOWLEDGE_VERSION_ID,
+  resolveDisplayedKnowledgeEntries,
+  type KnowledgeStatusFilter,
+} from "@/lib/knowledge-versions";
+import { buildNewReviewHref } from "@/lib/workspace-navigation";
 import { KnowledgeEntry, KnowledgeSection } from "@/lib/types";
 
 const SECTIONS: Array<{
@@ -94,7 +108,7 @@ const SECTIONS: Array<{
   },
 ];
 
-type StatusFilter = "All" | "Published" | "Draft" | "Archived";
+type StatusFilter = KnowledgeStatusFilter;
 
 function parseHexCodesInput(raw: string): { valid: string[]; invalid: string[] } {
   const parts = raw
@@ -116,20 +130,25 @@ function parseHexCodesInput(raw: string): { valid: string[]; invalid: string[] }
 
 export default function KnowledgeHubPage() {
   const {
+    hydrated,
     knowledge,
     workspaceBrands,
     selectedBrandId,
     selectedBrand,
+    selectedBrandVersionId,
     versionSnapshots,
     knowledgeLoading,
     knowledgeMutating,
     knowledgeError,
+    persistenceMode,
     selectBrand,
+    selectBrandVersion,
     createWorkspaceBrand,
     saveKnowledgeEntry,
     publishKnowledgeEntry,
     archiveKnowledgeEntry,
     refreshBrands,
+    enterSharedDemoMode,
     getKnowledgeRequestContext,
     notify,
   } = useIdentiq();
@@ -149,19 +168,42 @@ export default function KnowledgeHubPage() {
   const appliedDeepLinkRef = useRef(false);
 
   useEffect(() => {
-    if (typeof window === "undefined" || appliedDeepLinkRef.current) return;
-    appliedDeepLinkRef.current = true;
+    if (!hydrated || typeof window === "undefined" || appliedDeepLinkRef.current) {
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     const paramBrandId = params.get("brandId")?.trim();
+    const paramVersionId = params.get("brandVersionId")?.trim();
     const paramDocId = params.get("sourceDocId")?.trim();
     const paramPage = params.get("page")?.trim();
-    if (!paramBrandId && !paramDocId && !paramPage) return;
+    if (!paramBrandId && !paramVersionId && !paramDocId && !paramPage) {
+      appliedDeepLinkRef.current = true;
+      return;
+    }
+    if (paramBrandId && workspaceBrands.length === 0 && knowledgeLoading) {
+      return;
+    }
+    appliedDeepLinkRef.current = true;
 
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
       if (paramBrandId && paramBrandId !== selectedBrandId) {
-        void selectBrand(paramBrandId);
+        const exists = workspaceBrands.some((b) => b.brandId === paramBrandId);
+        if (exists) {
+          void selectBrand(paramBrandId).then(() => {
+            if (!cancelled && paramVersionId) {
+              selectBrandVersion(paramVersionId);
+            }
+          });
+        } else if (workspaceBrands.length > 0) {
+          notify(
+            `Brand "${paramBrandId}" was not found in this workspace.`,
+            "info",
+          );
+        }
+      } else if (paramVersionId) {
+        selectBrandVersion(paramVersionId);
       }
       if (paramDocId) {
         setSourceDocFilter(paramDocId);
@@ -175,7 +217,15 @@ export default function KnowledgeHubPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedBrandId, selectBrand]);
+  }, [
+    hydrated,
+    workspaceBrands,
+    knowledgeLoading,
+    selectedBrandId,
+    selectBrand,
+    selectBrandVersion,
+    notify,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -237,41 +287,69 @@ export default function KnowledgeHubPage() {
 
   const currentSectionMeta = SECTIONS.find((s) => s.id === activeSection)!;
 
-  const filteredEntries = useMemo(() => {
-    return knowledge.filter((entry) => {
-      if (sourceDocFilter) {
-        const matchesDoc = entry.sourceDocumentId === sourceDocFilter;
-        const matchesPage =
-          sourcePageFilter === null || entry.pageNumber === sourcePageFilter;
-        if (!matchesDoc || !matchesPage) return false;
-      } else if (entry.section !== activeSection) {
-        return false;
-      }
-      const pubStatus =
-        entry.publicationStatus ||
-        (entry.status === "Approved"
-          ? "published"
-          : entry.status === "Archived"
-          ? "archived"
-          : "draft");
-      const matchesStatus =
-        statusFilter === "All" ||
-        (statusFilter === "Published" && pubStatus === "published") ||
-        (statusFilter === "Draft" && pubStatus === "draft") ||
-        (statusFilter === "Archived" && pubStatus === "archived");
+  const {
+    entries: displayedEntries,
+    activeSnapshot,
+    isHistoricalView,
+  } = useMemo(
+    () =>
+      resolveDisplayedKnowledgeEntries({
+        liveEntries: knowledge,
+        snapshots: versionSnapshots,
+        selectedVersionId: selectedBrandVersionId,
+      }),
+    [knowledge, versionSnapshots, selectedBrandVersionId]
+  );
 
-      const q = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !q ||
-        entry.title.toLowerCase().includes(q) ||
-        entry.content.toLowerCase().includes(q) ||
-        (entry.preferredTerm || "").toLowerCase().includes(q) ||
-        (entry.avoidTerm || "").toLowerCase().includes(q) ||
-        (entry.sourceTitle || "").toLowerCase().includes(q) ||
-        (entry.sourceDocumentId || "").toLowerCase().includes(q);
-      return matchesStatus && matchesSearch;
-    });
-  }, [knowledge, activeSection, statusFilter, searchQuery, sourceDocFilter, sourcePageFilter]);
+  const sectionCounts = useMemo(
+    () => countEntriesBySection(displayedEntries),
+    [displayedEntries]
+  );
+
+  const entryCounts = useMemo(
+    () => deriveKnowledgeCounts(displayedEntries),
+    [displayedEntries]
+  );
+
+  const filteredEntries = useMemo(
+    () =>
+      filterKnowledgeEntries({
+        entries: displayedEntries,
+        activeSection,
+        statusFilter,
+        searchQuery,
+        sourceDocFilter,
+        sourcePageFilter,
+        isHistoricalView,
+      }),
+    [
+      displayedEntries,
+      activeSection,
+      statusFilter,
+      searchQuery,
+      sourceDocFilter,
+      sourcePageFilter,
+      isHistoricalView,
+    ]
+  );
+
+  const isAuthSetupRequired =
+    hydrated &&
+    (persistenceMode === "CONFIGURED_UNAUTHENTICATED" ||
+      persistenceMode === "AUTHENTICATED_NO_ORGANISATION");
+
+  const isInitialLoading =
+    !hydrated ||
+    (knowledgeLoading && displayedEntries.length === 0 && !knowledgeError);
+
+  const newReviewHref = useMemo(
+    () =>
+      buildNewReviewHref({
+        brandId: selectedBrandId,
+        brandVersionId: selectedBrandVersionId,
+      }),
+    [selectedBrandId, selectedBrandVersionId]
+  );
 
   const openCreateModal = () => {
     setEditingEntry(null);
@@ -397,15 +475,9 @@ export default function KnowledgeHubPage() {
     }
   };
 
-  const publishedCount = knowledge.filter(
-    (k) => (k.publicationStatus || (k.status === "Approved" ? "published" : "draft")) === "published"
-  ).length;
-  const draftCount = knowledge.filter(
-    (k) => (k.publicationStatus || (k.status === "Pending Review" ? "draft" : "published")) === "draft"
-  ).length;
-  const archivedCount = knowledge.filter(
-    (k) => (k.publicationStatus || (k.status === "Archived" ? "archived" : "draft")) === "archived"
-  ).length;
+  const publishedCount = entryCounts.published;
+  const draftCount = entryCounts.draft;
+  const archivedCount = entryCounts.archived;
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
@@ -413,8 +485,16 @@ export default function KnowledgeHubPage() {
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-[#6B6560] mb-1 tabular-nums">
-            {publishedCount} Published Rules · {draftCount} Drafts ·{" "}
-            {archivedCount} Archived
+            {isHistoricalView && activeSnapshot ? (
+              <>
+                Snapshot {activeSnapshot.versionId} · {entryCounts.total} Published Rules (Read-Only)
+              </>
+            ) : (
+              <>
+                {publishedCount} Published Rules · {draftCount} Drafts ·{" "}
+                {archivedCount} Archived
+              </>
+            )}
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-[#141414]">
             Brand Knowledge Hub
@@ -432,11 +512,13 @@ export default function KnowledgeHubPage() {
               id="kh-brand-select"
               value={selectedBrandId || ""}
               onChange={(e) => void selectBrand(e.target.value)}
-              disabled={knowledgeLoading || workspaceBrands.length === 0}
-              className="bg-transparent text-xs font-semibold text-[#141414] focus:outline-none pr-1"
+              disabled={!hydrated || knowledgeLoading || workspaceBrands.length === 0}
+              className="bg-transparent text-xs font-semibold text-[#141414] focus:outline-none pr-1 disabled:opacity-60"
             >
-              {workspaceBrands.length === 0 ? (
-                <option value="">No brands configured</option>
+              {!hydrated ? (
+                <option value="">Loading brands...</option>
+              ) : workspaceBrands.length === 0 ? (
+                <option value="">No brands available</option>
               ) : (
                 workspaceBrands.map((b) => (
                   <option key={b.brandId} value={b.brandId}>
@@ -449,23 +531,65 @@ export default function KnowledgeHubPage() {
             </select>
           </div>
 
+          {/* Version Snapshot Selector */}
+          {selectedBrand && versionSnapshots.length > 0 && (
+            <div className="flex items-center gap-2 bg-white border border-[#E7E1DA] rounded-full px-3.5 py-1.5">
+              <Layers className="w-3.5 h-3.5 text-[#6B6560] shrink-0" />
+              <label htmlFor="kh-version-select" className="sr-only">
+                Knowledge Version
+              </label>
+              <select
+                id="kh-version-select"
+                value={selectedBrandVersionId}
+                onChange={(e) => selectBrandVersion(e.target.value)}
+                disabled={knowledgeLoading}
+                className="bg-transparent text-xs font-semibold text-[#141414] focus:outline-none pr-1"
+              >
+                <option value={LATEST_KNOWLEDGE_VERSION_ID}>
+                  Live Working Rules ({selectedBrand.latestPublishedVersion || "latest"})
+                </option>
+                {versionSnapshots.map((snap) => (
+                  <option key={snap.snapshotId} value={snap.versionId}>
+                    Snapshot {snap.versionId} ({snap.entryCount} published)
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <button
             type="button"
+            disabled={isAuthSetupRequired || !hydrated}
             onClick={() => {
               setBrandFormError("");
               setBrandModalOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] disabled:opacity-50 text-xs font-semibold text-[#141414] transition-colors whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             Create Brand
           </button>
 
+          {selectedBrandId && (
+            <Link
+              href={newReviewHref}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#CDEEE0] border border-[#BAE0D0] hover:brightness-[0.97] text-xs font-semibold text-[#14532D] transition-all whitespace-nowrap"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Start New Review
+            </Link>
+          )}
+
           {activeView === "knowledge" && (
             <button
               type="button"
               onClick={openCreateModal}
-              disabled={!selectedBrandId}
+              disabled={!selectedBrandId || isHistoricalView || isAuthSetupRequired}
+              title={
+                isHistoricalView
+                  ? "Return to Live Working Rules to add or edit entries"
+                  : undefined
+              }
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#141414] text-white hover:bg-[#2A2A2A] disabled:opacity-50 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" />
@@ -489,7 +613,11 @@ export default function KnowledgeHubPage() {
                   Demo Sample Fixture
                 </span>
               )}
-              {selectedBrand.latestPublishedVersion ? (
+              {isHistoricalView && activeSnapshot ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-[#DDF0FA] text-[#0C4A6E] text-[11px] font-semibold">
+                  Inspecting Snapshot: {activeSnapshot.versionId}
+                </span>
+              ) : selectedBrand.latestPublishedVersion ? (
                 <span className="px-2.5 py-0.5 rounded-full bg-[#CDEEE0] text-[#14532D] text-[11px] font-semibold">
                   Active Version: {selectedBrand.latestPublishedVersion}
                 </span>
@@ -505,15 +633,97 @@ export default function KnowledgeHubPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {isHistoricalView && (
+              <button
+                type="button"
+                onClick={() => selectBrandVersion(LATEST_KNOWLEDGE_VERSION_ID)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold hover:bg-[#2B2B2B] transition-colors"
+              >
+                Return to Live Rules
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setVersionsOpen((v) => !v)}
+              aria-expanded={versionsOpen}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors"
             >
               <History className="w-3.5 h-3.5" />
               Version History ({versionSnapshots.length})
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Historical Snapshot Read-Only Banner */}
+      {isHistoricalView && activeSnapshot && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#DDF0FA]/70 border border-[#CBE2EF] text-[#0C4A6E] px-4 py-3 rounded-2xl text-xs">
+          <div className="space-y-0.5">
+            <p className="font-bold">
+              Read-Only Historical Snapshot · Version {activeSnapshot.versionId}
+            </p>
+            <p className="text-[#24516B]">
+              Published {activeSnapshot.publishedAt.slice(0, 16).replace("T", " ")} by{" "}
+              {activeSnapshot.publishedBy}. You can inspect these frozen rules or start a review pinned to this version.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={buildNewReviewHref({
+                brandId: selectedBrandId,
+                brandVersionId: activeSnapshot.versionId,
+              })}
+              className="px-3.5 py-1.5 rounded-full bg-[#141414] text-white font-semibold"
+            >
+              Review with {activeSnapshot.versionId}
+            </Link>
+            <button
+              type="button"
+              onClick={() => selectBrandVersion(LATEST_KNOWLEDGE_VERSION_ID)}
+              className="px-3.5 py-1.5 rounded-full bg-white border border-[#CBE2EF] text-[#0C4A6E] font-semibold"
+            >
+              View Live Rules
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Auth / Org Setup Notice */}
+      {isAuthSetupRequired && (
+        <div className="bg-white border border-[#E7E1DA] rounded-[24px] p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1.5 max-w-xl">
+            <h2 className="text-base font-bold text-[#141414]">
+              {persistenceMode === "AUTHENTICATED_NO_ORGANISATION"
+                ? "Create or select an organisation to manage brand knowledge"
+                : "Sign in or switch to the Demo Workspace"}
+            </h2>
+            <p className="text-xs text-[#524E4A] leading-relaxed">
+              {persistenceMode === "AUTHENTICATED_NO_ORGANISATION"
+                ? "Your account is signed in, but no organisation workspace is attached yet. Establish an organisation first so brand guidelines stay tenant-isolated."
+                : "Hosted Supabase workspace persistence is enabled. Sign in to access your organisation's Knowledge Hub, or launch the shared demo workspace to explore sample Teralune guidelines."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#141414] text-white text-xs font-semibold hover:bg-[#2B2B2B]"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              {persistenceMode === "AUTHENTICATED_NO_ORGANISATION"
+                ? "Create Organisation"
+                : "Sign In"}
+            </Link>
+            {persistenceMode === "CONFIGURED_UNAUTHENTICATED" && (
+              <button
+                type="button"
+                onClick={() => void enterSharedDemoMode()}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#CDEEE0] border border-[#BAE0D0] text-[#14532D] text-xs font-semibold hover:brightness-[0.97]"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Enter Shared Demo Workspace
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -541,32 +751,53 @@ export default function KnowledgeHubPage() {
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {versionSnapshots.map((snap) => (
-                <div
-                  key={snap.snapshotId}
-                  className="bg-[#FAF8F6] border border-[#E7E1DA] rounded-2xl p-3.5 text-xs space-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#141414]">
-                      Version {snap.versionId}
-                    </span>
-                    <span className="text-[11px] font-mono text-[#6B6560]">
-                      {snap.entryCount} published rules
-                    </span>
-                  </div>
-                  <p className="text-[#524E4A]">
-                    Published by {snap.publishedBy}
-                  </p>
-                  <p className="text-[11px] text-[#6B6560] tabular-nums">
-                    {snap.publishedAt.slice(0, 16).replace("T", " ")}
-                  </p>
-                  {snap.note && (
-                    <p className="text-[11px] text-[#3F3B37] italic pt-0.5">
-                      {snap.note}
+              {versionSnapshots.map((snap) => {
+                const isSelectedSnap = selectedBrandVersionId === snap.versionId;
+                return (
+                  <button
+                    key={snap.snapshotId}
+                    type="button"
+                    onClick={() => {
+                      selectBrandVersion(
+                        isSelectedSnap
+                          ? LATEST_KNOWLEDGE_VERSION_ID
+                          : snap.versionId
+                      );
+                      setActiveView("knowledge");
+                    }}
+                    className={`text-left rounded-2xl p-3.5 text-xs space-y-1 border transition-colors ${
+                      isSelectedSnap
+                        ? "bg-[#DDF0FA]/65 border-[#141414]"
+                        : "bg-[#FAF8F6] border-[#E7E1DA] hover:border-[#141414]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[#141414]">
+                        Version {snap.versionId}
+                      </span>
+                      <span className="text-[11px] font-mono text-[#6B6560] tabular-nums">
+                        {snap.entryCount} published rules
+                      </span>
+                    </div>
+                    <p className="text-[#524E4A]">
+                      Published by {snap.publishedBy}
                     </p>
-                  )}
-                </div>
-              ))}
+                    <p className="text-[11px] text-[#6B6560] tabular-nums">
+                      {snap.publishedAt.slice(0, 16).replace("T", " ")}
+                    </p>
+                    {snap.note && (
+                      <p className="text-[11px] text-[#3F3B37] italic pt-0.5">
+                        {snap.note}
+                      </p>
+                    )}
+                    <p className="text-[11px] font-semibold text-[#141414] pt-1">
+                      {isSelectedSnap
+                        ? "Currently inspecting · Click for live rules"
+                        : "Inspect snapshot →"}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -631,7 +862,7 @@ export default function KnowledgeHubPage() {
           <div className="lg:col-span-4 xl:col-span-3 bg-[#F3EDE8] border border-[#E7E1DA] rounded-[24px] p-3 space-y-1">
             {SECTIONS.map((sec) => {
               const Icon = sec.icon;
-              const count = knowledge.filter((k) => k.section === sec.id).length;
+              const count = sectionCounts[sec.id] ?? 0;
               const active = activeSection === sec.id;
               return (
                 <button
@@ -686,24 +917,31 @@ export default function KnowledgeHubPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-black/10">
-                <div className="flex flex-wrap items-center gap-1 bg-white/75 p-1 rounded-xl w-fit">
-                  {(["All", "Published", "Draft", "Archived"] as const).map(
-                    (status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => setStatusFilter(status)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                          statusFilter === status
-                            ? "bg-[#141414] text-white"
-                            : "text-[#524E4A] hover:text-[#141414]"
-                        }`}
-                      >
-                        {status}
-                      </button>
-                    )
-                  )}
-                </div>
+                {isHistoricalView ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/80 px-3 py-1.5 text-xs font-semibold text-[#0C4A6E]">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Showing snapshot published entries only
+                  </span>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1 bg-white/75 p-1 rounded-xl w-fit">
+                    {(["All", "Published", "Draft", "Archived"] as const).map(
+                      (status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setStatusFilter(status)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+                            statusFilter === status
+                              ? "bg-[#141414] text-white"
+                              : "text-[#524E4A] hover:text-[#141414]"
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
 
                 <div className="relative w-full sm:w-64">
                   <Search className="w-4 h-4 text-[#6B6560] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -739,33 +977,76 @@ export default function KnowledgeHubPage() {
             )}
 
             {/* Entries List */}
-            {filteredEntries.length === 0 ? (
+            {isInitialLoading ? (
+              <div className="space-y-3.5" aria-busy="true" aria-label="Loading knowledge entries">
+                {[0, 1, 2].map((idx) => (
+                  <div
+                    key={idx}
+                    className="bg-white border border-[#E7E1DA] rounded-[22px] p-5 space-y-3 animate-pulse"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="h-5 w-20 rounded-full bg-[#F3EDE8]" />
+                      <div className="h-5 w-16 rounded-full bg-[#FAF8F6]" />
+                    </div>
+                    <div className="h-4 w-56 rounded-full bg-[#F3EDE8]" />
+                    <div className="h-3 w-full rounded-full bg-[#FAF8F6]" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredEntries.length === 0 ? (
               <div className="bg-white border border-[#E7E1DA] rounded-[22px] p-8 text-center">
                 <p className="text-sm font-semibold text-[#141414]">
-                  No entries in {currentSectionMeta.label} match this filter
+                  {isAuthSetupRequired
+                    ? "Sign in or select a workspace to inspect brand rules"
+                    : !selectedBrandId
+                    ? "No brand selected yet"
+                    : isHistoricalView && activeSnapshot
+                    ? `No entries in ${currentSectionMeta.label} were published in snapshot ${activeSnapshot.versionId}`
+                    : sectionCounts[activeSection] === 0 && !sourceDocFilter
+                    ? `No rules recorded in ${currentSectionMeta.label} yet`
+                    : `No entries in ${currentSectionMeta.label} match this filter`}
                 </p>
                 <p className="text-xs text-[#6B6560] mt-1 mb-4">
-                  Add a new rule or switch the publication status filter.
+                  {isAuthSetupRequired
+                    ? "Tenant-isolated brand guidelines require an active workspace session."
+                    : isHistoricalView
+                    ? "Switch sections on the left or return to Live Working Rules."
+                    : sectionCounts[activeSection] === 0 && !sourceDocFilter
+                    ? "Add a manual rule or extract rules from a Brand Guideline PDF."
+                    : "Reset your search or publication status filter to see all rules in this section."}
                 </p>
-                <button
-                  type="button"
-                  onClick={openCreateModal}
-                  disabled={!selectedBrandId}
-                  className="px-4 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold disabled:opacity-50"
-                >
-                  Add Entry
-                </button>
+                {!isAuthSetupRequired &&
+                  !isHistoricalView &&
+                  (statusFilter !== "All" ||
+                  searchQuery.trim() !== "" ||
+                  sourceDocFilter ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("All");
+                        setSearchQuery("");
+                        setSourceDocFilter("");
+                        setSourcePageFilter(null);
+                      }}
+                      className="px-4 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold"
+                    >
+                      Clear Filters
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={openCreateModal}
+                      disabled={!selectedBrandId}
+                      className="px-4 py-2 rounded-full bg-[#141414] text-white text-xs font-semibold disabled:opacity-50"
+                    >
+                      Add Entry
+                    </button>
+                  ))}
               </div>
             ) : (
               <div className="space-y-3.5">
                 {filteredEntries.map((entry) => {
-                  const pubStatus =
-                    entry.publicationStatus ||
-                    (entry.status === "Approved"
-                      ? "published"
-                      : entry.status === "Archived"
-                      ? "archived"
-                      : "draft");
+                  const pubStatus = getEntryPublicationStatus(entry);
                   const isPublished = pubStatus === "published";
                   const isArchived = pubStatus === "archived";
 
@@ -831,42 +1112,44 @@ export default function KnowledgeHubPage() {
                           </h3>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {!isPublished && (
+                        {!isHistoricalView && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {!isPublished && (
+                              <button
+                                type="button"
+                                disabled={knowledgeMutating}
+                                onClick={() => void publishKnowledgeEntry(entry.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#141414] text-white text-xs font-medium hover:bg-[#2B2B2B] disabled:opacity-50 transition-colors whitespace-nowrap"
+                              >
+                                <UploadCloud className="w-3.5 h-3.5" />
+                                Publish
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={knowledgeMutating}
-                              onClick={() => void publishKnowledgeEntry(entry.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#141414] text-white text-xs font-medium hover:bg-[#2B2B2B] disabled:opacity-50 transition-colors whitespace-nowrap"
+                              onClick={() => openEditModal(entry)}
+                              aria-label={`Edit ${entry.title}`}
+                              className="p-2 rounded-lg border border-[#E7E1DA] text-[#3F3B37] hover:bg-[#FAF8F6] disabled:opacity-50 transition-colors"
                             >
-                              <UploadCloud className="w-3.5 h-3.5" />
-                              Publish
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={knowledgeMutating}
-                            onClick={() => openEditModal(entry)}
-                            aria-label={`Edit ${entry.title}`}
-                            className="p-2 rounded-lg border border-[#E7E1DA] text-[#3F3B37] hover:bg-[#FAF8F6] disabled:opacity-50 transition-colors"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          {!isArchived && (
-                            <button
-                              type="button"
-                              disabled={knowledgeMutating}
-                              onClick={() =>
-                                void archiveKnowledgeEntry(entry.id)
-                              }
-                              aria-label={`Archive ${entry.title}`}
-                              title="Archive rule (removes from active governance)"
-                              className="p-2 rounded-lg border border-[#E7E1DA] text-[#991B1B] hover:bg-[#F6D5DA]/40 disabled:opacity-50 transition-colors"
-                            >
-                              <Archive className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                            {!isArchived && (
+                              <button
+                                type="button"
+                                disabled={knowledgeMutating}
+                                onClick={() =>
+                                  void archiveKnowledgeEntry(entry.id)
+                                }
+                                aria-label={`Archive ${entry.title}`}
+                                title="Archive rule (removes from active governance)"
+                                className="p-2 rounded-lg border border-[#E7E1DA] text-[#991B1B] hover:bg-[#F6D5DA]/40 disabled:opacity-50 transition-colors"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <p className="text-sm text-[#3F3B37] leading-relaxed">

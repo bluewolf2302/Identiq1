@@ -167,6 +167,7 @@ export interface KnowledgeVersionSnapshot {
   publishedBy: string;
   entryCount: number;
   note?: string;
+  entries?: KnowledgeEntry[];
 }
 
 export type AssetCategory =
