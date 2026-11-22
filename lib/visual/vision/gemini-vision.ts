@@ -260,7 +260,7 @@ export class SdkGeminiVisionAdapter implements GeminiVisionAdapter {
     if (!apiKey) {
       throw new GeminiVisionError(
         "MISSING_CREDENTIALS",
-        "GEMINI_API_KEY is not configured for vision analysis.",
+        "Primary vision credentials are not configured.",
       );
     }
 

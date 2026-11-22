@@ -119,12 +119,22 @@ function parseVersionNumber(versionId: string | null | undefined, meta: IdentiqR
   return 1;
 }
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string | undefined | null): boolean {
+  return Boolean(value && UUID_REGEX.test(value.trim()));
+}
+
 export class SupabaseBrandKnowledgeRepository
   implements MultiBrandKnowledgeRepository
 {
   private async fetchBrandRow(
     brandId: string,
   ): Promise<Record<string, unknown> | null> {
+    if (brandId === teraluneKnowledge.profile.brandId || !isValidUuid(brandId)) {
+      return null;
+    }
     const res = await callServerPostgrest<Array<Record<string, unknown>>>(
       `/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=*&limit=1`,
       { useServiceRole: true },
@@ -532,6 +542,11 @@ export class SupabaseBrandKnowledgeRepository
   async saveKnowledgeEntry(
     input: SaveManagedKnowledgeInput,
   ): Promise<ManagedKnowledgeEntry> {
+    if (input.brandId === teraluneKnowledge.profile.brandId) {
+      throw new BrandKnowledgeRepositoryError(
+        "Teralune sample guidelines (v1.0) are preloaded read-only reference fixtures. Select or create a workspace brand to manage custom rules.",
+      );
+    }
     const brandRow = await this.fetchBrandRow(input.brandId);
     if (!brandRow) {
       throw new BrandKnowledgeRepositoryError(
@@ -761,6 +776,11 @@ export class SupabaseBrandKnowledgeRepository
     entry: ManagedKnowledgeEntry;
     snapshot: BrandVersionSnapshot;
   }> {
+    if (input.brandId === teraluneKnowledge.profile.brandId) {
+      throw new BrandKnowledgeRepositoryError(
+        "Teralune sample guidelines (v1.0) are preloaded read-only reference fixtures.",
+      );
+    }
     const brandRow = await this.fetchBrandRow(input.brandId);
     if (!brandRow) {
       throw new BrandKnowledgeRepositoryError(
@@ -887,6 +907,11 @@ export class SupabaseBrandKnowledgeRepository
     brandId: string;
     organisationId?: string;
   }): Promise<ManagedKnowledgeEntry> {
+    if (input.brandId === teraluneKnowledge.profile.brandId) {
+      throw new BrandKnowledgeRepositoryError(
+        "Teralune sample guidelines (v1.0) are preloaded read-only reference fixtures.",
+      );
+    }
     const brandRow = await this.fetchBrandRow(input.brandId);
     if (!brandRow) {
       throw new BrandKnowledgeRepositoryError(

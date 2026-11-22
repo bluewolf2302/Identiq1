@@ -61,6 +61,7 @@ export default function AssetLibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [previewAsset, setPreviewAsset] = useState<BrandAsset | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [brokenPreviewIds, setBrokenPreviewIds] = useState<Record<string, boolean>>({});
 
   // Upload state
   const [assetName, setAssetName] = useState("");
@@ -236,7 +237,7 @@ export default function AssetLibraryPage() {
             {hydrated
               ? `${visibleAssets.length} visual ${visibleAssets.length === 1 ? "resource" : "resources"} · ${
                   isDemoWorkspace
-                    ? "Teralune demo guidelines, sample ads, logos & packaging specs"
+                    ? "Brand assets & preloaded Teralune sample resources"
                     : "Approved logos, photography, and marks"
                 }`
               : "Loading visual resources..."}
@@ -252,7 +253,7 @@ export default function AssetLibraryPage() {
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors whitespace-nowrap"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#14532D]" />
-              Try Demo Review
+              Review Sample Campaign
             </Link>
           )}
           <button
@@ -281,14 +282,21 @@ export default function AssetLibraryPage() {
         <div className="flex items-start gap-2.5 min-w-0">
           <HardDrive className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-[#141414]">
-              {isDemoWorkspace
-                ? "Demo Workspace · Curated Teralune Fixtures (Sample Data)"
-                : persistenceNotice.label}
+            <p className="text-xs font-semibold text-[#141414] flex flex-wrap items-center gap-1.5">
+              <span>
+                {isDemoWorkspace
+                  ? "Preloaded Sample Assets · Teralune"
+                  : persistenceNotice.label}
+              </span>
+              {isDemoWorkspace && (
+                <span className="px-1.5 py-0.5 rounded bg-[#CDEEE0] text-[#14532D] text-[10px] font-semibold">
+                  Sample
+                </span>
+              )}
             </p>
             <p className="text-[11px] leading-relaxed mt-0.5">
               {isDemoWorkspace
-                ? "Teralune sample PDFs, logos, and packaging specs are isolated demo fixtures. Uploaded assets stay in this demo session."
+                ? "Teralune sample PDFs, logos, and packaging specs are isolated from customer organisation records. Uploaded assets remain in your workspace session."
                 : persistenceNotice.description}
             </p>
           </div>
@@ -409,18 +417,21 @@ export default function AssetLibraryPage() {
                     onClick={() => setPreviewAsset(asset)}
                     className={`w-full aspect-[4/3] ${tone.bg} relative flex items-center justify-center overflow-hidden group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#141414]`}
                   >
-                    {asset.previewUrl ? (
+                    {asset.previewUrl && !brokenPreviewIds[asset.id] ? (
                       <img
                         src={asset.previewUrl}
                         alt={asset.name}
                         referrerPolicy="no-referrer"
+                        onError={() =>
+                          setBrokenPreviewIds((prev) => ({ ...prev, [asset.id]: true }))
+                        }
                         className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
                       />
                     ) : asset.format === "PDF" ? (
                       <div className="w-full h-full p-5 flex flex-col justify-between text-left bg-[#F4F8F7]">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#163A52]">
-                            {asset.isDemoFixture ? "Demo Sample · PDF" : "PDF Document"}
+                            {asset.isDemoFixture ? "Sample · PDF" : "PDF Document"}
                           </span>
                           <span className="w-8 h-8 rounded-xl bg-white border border-[#DFF1ED] flex items-center justify-center text-[#163A52]">
                             <FileText className="w-4 h-4" />
@@ -456,7 +467,7 @@ export default function AssetLibraryPage() {
                   <div className="p-4">
                     <div className="flex items-center justify-between gap-2 text-xs mb-1">
                       <span className="text-[#6B6560] truncate">
-                        {asset.isDemoFixture ? "Demo Sample · " : ""}
+                        {asset.isDemoFixture ? "Sample · " : ""}
                         {asset.category} · {asset.format}
                       </span>
                       <span
@@ -572,11 +583,17 @@ export default function AssetLibraryPage() {
                     </a>
                   </div>
                 </div>
-              ) : previewAsset.previewUrl ? (
+              ) : previewAsset.previewUrl && !brokenPreviewIds[previewAsset.id] ? (
                 <img
                   src={previewAsset.previewUrl}
                   alt={previewAsset.name}
                   referrerPolicy="no-referrer"
+                  onError={() =>
+                    setBrokenPreviewIds((prev) => ({
+                      ...prev,
+                      [previewAsset.id]: true,
+                    }))
+                  }
                   className="max-h-72 rounded-2xl object-contain"
                 />
               ) : (
@@ -594,7 +611,7 @@ export default function AssetLibraryPage() {
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-xs text-[#6B6560] tabular-nums">
-                  {previewAsset.isDemoFixture ? "Demo Sample · " : ""}Updated {previewAsset.updatedAt}
+                  {previewAsset.isDemoFixture ? "Sample · " : ""}Updated {previewAsset.updatedAt}
                 </span>
                 <button
                   type="button"

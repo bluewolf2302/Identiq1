@@ -40,30 +40,39 @@ function classifyOpenRouterError(error: unknown, status?: number): GeminiVisionE
   if (status === 401 || status === 403 || /unauthorized|invalid api key|forbidden/i.test(msg)) {
     return new GeminiVisionError(
       "INVALID_CREDENTIALS",
-      "OpenRouter API credentials were rejected.",
+      "Secondary vision provider credentials were rejected.",
+      false,
+    );
+  }
+  if (status === 402 || /insufficient credits|payment required|credits/i.test(msg)) {
+    return new GeminiVisionError(
+      "RATE_LIMITED",
+      "Secondary vision provider capacity credits exhausted.",
       false,
     );
   }
   if (status === 429 || /rate limit|429|quota/i.test(msg)) {
     return new GeminiVisionError(
       "RATE_LIMITED",
-      "OpenRouter vision rate limit exceeded.",
+      "Secondary vision provider rate limit exceeded.",
       true,
     );
   }
   if (status === 404 || /not found/i.test(msg)) {
     return new GeminiVisionError(
       "MODEL_NOT_FOUND",
-      "Configured OpenRouter vision model was not found.",
+      "Configured secondary vision model was not found.",
       false,
     );
   }
-  if (error instanceof DOMException && error.name === "AbortError" || /timeout|aborted/i.test(msg)) {
-    return new GeminiVisionError("TIMEOUT", "OpenRouter vision request timed out.", true);
+  if ((error instanceof DOMException && error.name === "AbortError") || /timeout|aborted/i.test(msg)) {
+    return new GeminiVisionError("TIMEOUT", "Secondary vision request timed out.", true);
   }
   return new GeminiVisionError(
     "PROVIDER_ERROR",
-    `OpenRouter vision request failed: ${msg}`,
+    status
+      ? `Secondary vision request failed (status ${status}).`
+      : "Secondary vision request could not be completed.",
     status === undefined || status >= 500,
   );
 }
@@ -83,7 +92,7 @@ export class OpenRouterVisionAdapter implements GeminiVisionAdapter {
     if (!apiKey) {
       throw new GeminiVisionError(
         "MISSING_CREDENTIALS",
-        "OPENROUTER_API_KEY is not configured for vision analysis.",
+        "Secondary vision credentials are not configured.",
         false,
       );
     }

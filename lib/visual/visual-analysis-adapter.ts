@@ -32,6 +32,7 @@ import {
   createResilientVisionAdapterFromEnvironment,
   ResilientVisionAdapter,
 } from "./vision/resilient-vision";
+import { sanitizeClientDiagnosticMessage } from "../analysis/error-sanitizer";
 
 export interface AnalyzeCreativeVisuallyInput {
   creative: CreativeFileInput;
@@ -140,7 +141,7 @@ export async function analyzeCreativeVisually(
               { pageNumber },
             );
             warnings.push(
-              `Page ${pageNumber}: Primary vision provider (${primaryProvider}) failed (${reason}); recovered using fallback vision provider (${fallbackProvider}).`,
+              `Page ${pageNumber}: Primary visual inspection fell back to secondary visual coverage.`,
             );
           },
         })
@@ -152,23 +153,29 @@ export async function analyzeCreativeVisually(
     !(visionAdapter as ResilientVisionAdapter).hasConfiguredProvider
   ) {
     warnings.push(
-      "Neither GEMINI_API_KEY nor OPENROUTER_API_KEY is configured for vision analysis; ran OCR and deterministic visual checks only.",
+      "AI visual enhancement is not enabled in this workspace; ran OCR and deterministic visual checks only.",
     );
   } else if (!visionAdapter) {
     warnings.push(
-      "Vision model disabled; ran OCR and deterministic visual checks only.",
+      "Enhanced visual inspection was skipped; ran OCR and deterministic visual checks only.",
     );
   }
 
   // 3. Per-page OCR + deterministic visual checks + Gemini Vision
   for (const page of pages) {
-    warnings.push(...page.warnings);
+    for (const pageWarn of page.warnings) {
+      warnings.push(sanitizeClientDiagnosticMessage(pageWarn, "Page processing notice."));
+    }
 
     if (page.status === "failed") {
       partialPageFailureCount++;
-      const errMsg = page.error ?? `Page ${page.pageNumber} failed to render.`;
-      errors.push(errMsg);
-      logger.warn("page-render", errMsg, { pageNumber: page.pageNumber });
+      const rawErr = page.error ?? `Page ${page.pageNumber} failed to render.`;
+      const safePageErr = sanitizeClientDiagnosticMessage(
+        rawErr,
+        `Page ${page.pageNumber} failed to render.`,
+      );
+      errors.push(safePageErr);
+      logger.warn("page-render", rawErr, { pageNumber: page.pageNumber });
       continue;
     }
 
@@ -185,7 +192,9 @@ export async function analyzeCreativeVisually(
       { config, ocrRunner: deps.ocrRunner },
     );
     ocrDurationMs += ocrResult.durationMs;
-    warnings.push(...ocrResult.warnings);
+    for (const ocrWarn of ocrResult.warnings) {
+      warnings.push(sanitizeClientDiagnosticMessage(ocrWarn, "OCR extraction notice."));
+    }
     allOcrBlocks.push(...ocrResult.blocks);
 
     logger.info("ocr", "Extracted page text blocks", {
@@ -304,17 +313,41 @@ export async function analyzeCreativeVisually(
         const elapsed = Date.now() - gemStart;
         geminiDurationMs += elapsed;
         visionStageFailed = true;
-        const safeErr =
+        const internalErrSummary =
           error instanceof GeminiVisionError
             ? `AI visual interpretation unavailable (${error.code}): ${error.message}`
             : error instanceof Error
-              ? `AI visual interpretation unavailable: ${error.message}`
-              : "AI visual interpretation could not be completed.";
-        errors.push(safeErr);
-        warnings.push(
-          `Page ${page.pageNumber}: ${safeErr} Deterministic visual checks and OCR results were preserved.`,
+              ? error.message
+              : "Unknown visual error";
+
+        let userSafeReason = "AI visual inspection could not be completed for this page.";
+        if (error instanceof GeminiVisionError) {
+          if (error.code === "TIMEOUT") {
+            userSafeReason = "AI visual inspection timed out.";
+          } else if (error.code === "RATE_LIMITED") {
+            userSafeReason = "AI visual inspection reached temporary capacity limits.";
+          } else if (
+            error.code === "MISSING_CREDENTIALS" ||
+            error.code === "INVALID_CREDENTIALS"
+          ) {
+            userSafeReason = "AI visual inspection is unavailable in this environment.";
+          }
+        } else if (error instanceof Error) {
+          userSafeReason = sanitizeClientDiagnosticMessage(
+            error.message,
+            userSafeReason,
+          );
+        }
+
+        errors.push(
+          error instanceof GeminiVisionError && error.code === "TIMEOUT"
+            ? `${userSafeReason} (TIMEOUT)`
+            : userSafeReason,
         );
-        logger.warn("gemini-vision", safeErr, {
+        warnings.push(
+          `Page ${page.pageNumber}: ${userSafeReason} Deterministic visual checks and OCR results were preserved.`,
+        );
+        logger.warn("gemini-vision", internalErrSummary, {
           pageNumber: page.pageNumber,
           metrics: {
             geminiProvider: visionAdapter.providerName,
@@ -407,7 +440,14 @@ export async function analyzeCreativeVisually(
       imageWidth: p.imageWidth,
       imageHeight: p.imageHeight,
       status: p.status,
-      ...(p.error ? { error: p.error } : {}),
+      ...(p.error
+        ? {
+            error: sanitizeClientDiagnosticMessage(
+              p.error,
+              `Page ${p.pageNumber} failed to render.`,
+            ),
+          }
+        : {}),
       ...(p.previewDataUrl ? { previewDataUrl: p.previewDataUrl } : {}),
       originalAssetId: p.originalAssetId,
     })),

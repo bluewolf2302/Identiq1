@@ -43,7 +43,6 @@ import {
   TERALUNE_DEMO_BRAND_ID,
   TERALUNE_GUIDELINES_PDF_URL,
   TERALUNE_REVIEW_SAMPLE_CARDS,
-  type DemoReadinessCheckResult,
   type TeraluneReviewSampleCard,
 } from "@/lib/demo/teralune-demo-fixtures";
 
@@ -151,26 +150,6 @@ function NewReviewContent() {
   );
   const [activeSampleCard, setActiveSampleCard] =
     useState<TeraluneReviewSampleCard | null>(null);
-  const [demoReadiness, setDemoReadiness] = useState<DemoReadinessCheckResult | null>(
-    null,
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/demo/readiness", { cache: "no-store" })
-      .then((res) => (res.ok ? (res.json() as Promise<DemoReadinessCheckResult>) : null))
-      .then((data) => {
-        if (!cancelled && data) {
-          setDemoReadiness(data);
-        }
-      })
-      .catch(() => {
-        // Non-blocking readiness check
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Sync deep-linked ?brandId= with IdentiqProvider once brands are hydrated
   useEffect(() => {
@@ -366,14 +345,23 @@ function NewReviewContent() {
     }
   };
 
+  const isSampleSubmission =
+    Boolean(activeSampleCard) ||
+    activeBrandChoice?.brandId === TERALUNE_DEMO_BRAND_ID;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-    const submissionBrandId =
-      activeBrandChoice?.brandId || brandId || undefined;
+    const submissionBrandId = activeSampleCard
+      ? TERALUNE_DEMO_BRAND_ID
+      : activeBrandChoice?.brandId || brandId || undefined;
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" && !submissionBrandId) {
+    if (
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      !isSampleSubmission &&
+      !submissionBrandId
+    ) {
       setErrorMessage(
         "Cannot submit review: No active brand profile is configured for this organisation. Reviews in authenticated mode require an active brand."
       );
@@ -399,6 +387,7 @@ function NewReviewContent() {
     try {
       const submissionId = `submission-${crypto.randomUUID()}`;
       const isHistoricalVersion =
+        !activeSampleCard &&
         Boolean(effectiveVersionId) &&
         effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID;
 
@@ -408,21 +397,24 @@ function NewReviewContent() {
         selectedVersionId: effectiveVersionId,
       });
 
-      const approvedRules = resolvedDisplay.entries
-        .filter((k) => isHistoricalVersion || k.status === "Approved")
-        .map((k) => `${k.title}: ${k.content}`);
+      const approvedRules = activeSampleCard
+        ? []
+        : resolvedDisplay.entries
+            .filter((k) => isHistoricalVersion || k.status === "Approved")
+            .map((k) => `${k.title}: ${k.content}`);
 
       const versionLabel = isHistoricalVersion
         ? effectiveVersionId
         : activeBrandChoice?.latestPublishedVersion;
 
-      const effectiveGuidelineLabel = activeBrandChoice
-        ? activeBrandChoice.brandId === "demo-brand-teralune" && !isHistoricalVersion
+      const effectiveGuidelineLabel =
+        activeSampleCard || submissionBrandId === TERALUNE_DEMO_BRAND_ID
           ? "Teralune Brand Identity & AI Guidelines v1.0"
-          : `${activeBrandChoice.brandName}${
+          : activeBrandChoice
+          ? `${activeBrandChoice.brandName}${
               versionLabel ? ` (${versionLabel})` : ""
             }`
-        : guidelineCollection;
+          : guidelineCollection;
 
       const token = session?.accessToken || getClientAuthToken();
       const headers: Record<string, string> = {
@@ -506,23 +498,28 @@ function NewReviewContent() {
       const firstPagePreview = data.visualSummary?.pages.find((p) => p.previewDataUrl)
         ?.previewDataUrl;
 
-      const resolvedBrandLabel = activeBrandChoice
-        ? activeBrandChoice.brandId === "demo-brand-teralune" && !isHistoricalVersion
+      const resolvedBrandLabel =
+        activeSampleCard || submissionBrandId === TERALUNE_DEMO_BRAND_ID
           ? "Teralune Brand Identity & AI Guidelines v1.0"
-          : `${activeBrandChoice.brandName}${
+          : activeBrandChoice
+          ? `${activeBrandChoice.brandName}${
               data.brandVersionId || versionLabel
                 ? ` (${data.brandVersionId || versionLabel})`
                 : ""
             }`
-        : guidelineCollection;
+          : guidelineCollection;
 
       const newReview: ReviewSubmission = {
         id: newId,
         brandId: data.brandId ?? submissionBrandId,
-        brandName: data.brandName ?? activeBrandChoice?.brandName ?? brandName ?? undefined,
+        brandName:
+          data.brandName ??
+          (activeSampleCard ? "Teralune" : activeBrandChoice?.brandName ?? brandName ?? undefined),
         brandVersionId:
           data.brandVersionId ??
-          (isHistoricalVersion
+          (activeSampleCard
+            ? "1.0"
+            : isHistoricalVersion
             ? effectiveVersionId
             : activeBrandChoice?.latestPublishedVersion),
         title: title.trim(),
@@ -581,8 +578,10 @@ function NewReviewContent() {
           <ShieldCheck className="w-4 h-4 shrink-0" />
           <span className="truncate">
             Active Brand:{" "}
-            {activeBrandChoice
-              ? `${activeBrandChoice.brandName}${
+            {activeSampleCard
+              ? "Teralune [Sample] · v1.0"
+              : activeBrandChoice
+              ? `${activeBrandChoice.brandName}${activeBrandChoice.isSample ? " [Sample]" : ""}${
                   effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID
                     ? ` · Snapshot ${effectiveVersionId}`
                     : activeBrandChoice.latestPublishedVersion
@@ -610,15 +609,15 @@ function NewReviewContent() {
         </div>
       )}
 
-      {/* Compact Try a Teralune Demo Review Selector */}
+      {/* Compact Try a Teralune Sample Review Selector */}
       <section
-        aria-label="Try a Teralune Demo Review"
+        aria-label="Try a Teralune Sample Review"
         className="bg-[#F3EDE8] border border-[#E7E1DA] rounded-[24px] p-4 sm:p-5 space-y-3.5"
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-[#141414]">
-              Try a Teralune Demo Review
+              Try a Teralune Sample Review
             </h2>
             <p className="text-xs text-[#524E4A]">
               Attach a pre-supplied Teralune advertisement PDF and run live analysis against published v1.0 guidelines.
@@ -665,7 +664,7 @@ function NewReviewContent() {
                         isWarning ? "text-[#78350F]" : "text-[#14532D]"
                       }`}
                     >
-                      {isSelected ? "Demo sample selected" : card.subtitle}
+                      {isSelected ? "Sample selected" : card.subtitle}
                     </span>
                   </div>
                   <p className="text-[11px] font-mono text-[#524E4A] truncate">
@@ -712,30 +711,12 @@ function NewReviewContent() {
             );
           })}
         </div>
-
-        {demoReadiness &&
-          (demoReadiness.status === "attention_needed" ||
-            !demoReadiness.aiProviderReady) && (
-            <div
-              role="status"
-              className="rounded-xl bg-[#FFF4E5] border border-[#FFE2BA] px-3.5 py-2.5 text-xs text-[#78350F] space-y-1"
-            >
-              <p className="font-semibold flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
-                Readiness Check Notice
-              </p>
-              {demoReadiness.warnings.map((warn, i) => (
-                <p key={`new-review-readiness-${i}`} className="text-[11px] leading-snug">
-                  • {warn}
-                </p>
-              ))}
-            </div>
-          )}
       </section>
 
       {/* Missing Active Brand Alert in Authenticated Mode */}
       {hydrated &&
         persistenceMode === "AUTHENTICATED_SUPABASE" &&
+        !isSampleSubmission &&
         !activeBrandChoice?.brandId &&
         !brandId && (
           <div
@@ -842,7 +823,19 @@ function NewReviewContent() {
             >
               Brand Governance Profile
             </label>
-            {workspaceBrands.length > 0 ? (
+            {activeSampleCard ? (
+              <div className="w-full px-4 py-3 rounded-2xl border border-[#BAE0D0] bg-[#CDEEE0]/40 text-sm text-[#14532D] font-semibold flex items-center justify-between gap-2">
+                <span className="truncate">Teralune [Sample] · v1.0</span>
+                <button
+                  type="button"
+                  onClick={clearAttachment}
+                  disabled={isSubmitting}
+                  className="text-[11px] font-semibold underline shrink-0"
+                >
+                  Clear sample
+                </button>
+              </div>
+            ) : workspaceBrands.length > 0 ? (
               <select
                 id="guideline-collection"
                 value={activeBrandChoiceId}
@@ -883,7 +876,7 @@ function NewReviewContent() {
                 ))}
               </select>
             )}
-            {activeBrandChoice && activeBrandChoice.publishedEntryCount === 0 && (
+            {!activeSampleCard && activeBrandChoice && activeBrandChoice.publishedEntryCount === 0 && (
               <p className="text-[11px] text-[#92400E] mt-1.5">
                 No published Knowledge Hub rules yet for {activeBrandChoice.brandName}.{" "}
                 <Link
@@ -897,7 +890,7 @@ function NewReviewContent() {
             )}
           </div>
 
-          {workspaceBrands.length > 0 && activeBrandChoice && (
+          {!activeSampleCard && workspaceBrands.length > 0 && activeBrandChoice && (
             <div className="sm:col-span-2">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <label
@@ -998,6 +991,7 @@ function NewReviewContent() {
                     src={assetPreviewUrl}
                     alt={assetName}
                     referrerPolicy="no-referrer"
+                    onError={() => setAssetPreviewUrl(undefined)}
                     className="w-12 h-12 rounded-xl object-cover shrink-0 border border-black/10"
                   />
                 ) : (
@@ -1102,8 +1096,10 @@ function NewReviewContent() {
           <p className="text-xs text-[#6B6560]">
             Brand:{" "}
             <strong className="text-[#141414] tabular-nums">
-              {activeBrandChoice
-                ? `${activeBrandChoice.brandName} (${activeBrandChoice.publishedEntryCount} published${
+              {activeSampleCard
+                ? "Teralune [Sample] · v1.0"
+                : activeBrandChoice
+                ? `${activeBrandChoice.brandName}${activeBrandChoice.isSample ? " [Sample]" : ""} (${activeBrandChoice.publishedEntryCount} published${
                     effectiveVersionId !== LATEST_KNOWLEDGE_VERSION_ID
                       ? ` · ${effectiveVersionId}`
                       : ""
@@ -1119,6 +1115,7 @@ function NewReviewContent() {
             disabled={
               isSubmitting ||
               (persistenceMode === "AUTHENTICATED_SUPABASE" &&
+                !isSampleSubmission &&
                 !activeBrandChoice?.brandId &&
                 !brandId)
             }

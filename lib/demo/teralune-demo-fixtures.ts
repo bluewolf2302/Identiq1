@@ -14,7 +14,6 @@ export type DemoPersona = "Brand Manager" | "Reviewer";
 
 export interface DemoPersonaOption {
   persona: DemoPersona;
-  displayName: string;
   roleTitle: string;
   summary: string;
   avatarId: PresetAvatarId;
@@ -23,14 +22,12 @@ export interface DemoPersonaOption {
 export const DEMO_PERSONA_OPTIONS: DemoPersonaOption[] = [
   {
     persona: "Brand Manager",
-    displayName: "Maya Lin (Demo)",
     roleTitle: "Brand Manager",
     summary: "Manage guidelines, assets, and launch readiness",
     avatarId: "mint",
   },
   {
     persona: "Reviewer",
-    displayName: "Daniel Brooks (Demo)",
     roleTitle: "Reviewer",
     summary: "Inspect campaigns, verify evidence, and record decisions",
     avatarId: "sky",
@@ -38,8 +35,8 @@ export const DEMO_PERSONA_OPTIONS: DemoPersonaOption[] = [
 ];
 
 /**
- * Resolves display-only demo viewer metadata.
- * Non-authoritative: never grants customer org permissions or server auth claims.
+ * Resolves display-only perspective preference metadata.
+ * Non-authoritative: never overwrites viewer identity, customer org permissions, or server auth claims.
  */
 export function resolveDemoPersonaConfig(persona?: DemoPersona | string): DemoPersonaOption {
   const found = DEMO_PERSONA_OPTIONS.find((opt) => opt.persona === persona);

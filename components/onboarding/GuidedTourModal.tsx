@@ -134,7 +134,7 @@ export function GuidedTourModal({
         aria-modal="true"
         aria-labelledby="guided-tour-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg bg-white border border-[#E7E1DA] rounded-[28px] p-6 sm:p-7 shadow-2xl space-y-5"
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white border border-[#E7E1DA] rounded-[28px] p-5 sm:p-7 shadow-2xl space-y-5"
       >
         {/* Top Row: Step indicator + Skip */}
         <div className="flex items-center justify-between gap-3">
@@ -205,12 +205,12 @@ export function GuidedTourModal({
 
         {isFirst && viewerName && (
           <p className="text-xs text-[#6B6560]">
-            Welcome, <strong className="text-[#141414]">{viewerName}</strong>. Sample brand data is already loaded so you can explore right away.
+            Welcome, <strong className="text-[#141414]">{viewerName}</strong>. Here is a quick walkthrough of how Identiq checks campaigns against verified brand guidelines.
           </p>
         )}
 
         {/* Controls */}
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <button
             type="button"
             onClick={() => setStepIndex((i) => Math.max(0, i - 1))}

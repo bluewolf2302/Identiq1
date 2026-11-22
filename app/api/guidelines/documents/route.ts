@@ -21,6 +21,10 @@ import {
   validateGuidelinePdfBuffer,
 } from "@/lib/guidelines/intelligence";
 import { createGuidelinePdfStorage } from "@/lib/guidelines/storage";
+import {
+  TERALUNE_DEMO_BRAND_ID,
+  TERALUNE_GUIDELINES_PDF_URL,
+} from "@/lib/demo/teralune-demo-fixtures";
 
 function defaultTitleFromFileName(fileName: string): string {
   return (
@@ -63,13 +67,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const isSampleBrand = Boolean(
+      brand.isSample || brandId === TERALUNE_DEMO_BRAND_ID,
+    );
     const docRepo = createGuidelineDocumentRepository();
     const [sessions, publishedEntries] = await Promise.all([
-      docRepo.listDocumentSessions({
-        brandId,
-        organisationId: tenant.organisationId,
-        includeDiscarded,
-      }),
+      isSampleBrand
+        ? Promise.resolve([])
+        : docRepo.listDocumentSessions({
+            brandId,
+            organisationId: tenant.organisationId,
+            includeDiscarded,
+          }),
       brandRepo.listKnowledgeEntries({
         brandId,
         organisationId: tenant.organisationId,
@@ -85,6 +94,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       sessions: enrichedSessions,
       brand,
+      ...(isSampleBrand
+        ? {
+            sampleGuidelineDocument: {
+              title: "Teralune Brand Identity & AI Guidelines",
+              version: "v1.0",
+              url: TERALUNE_GUIDELINES_PDF_URL,
+              readOnly: true,
+            },
+          }
+        : {}),
       persistenceEnvironment: getPersistenceEnvironmentInfo(),
     });
   } catch (err) {
@@ -146,6 +165,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `Brand "${brandId}" was not found.` },
         { status: 404 },
+      );
+    }
+
+    if (brand.isSample || brandId === TERALUNE_DEMO_BRAND_ID) {
+      return NextResponse.json(
+        {
+          error:
+            "Teralune sample guidelines (v1.0) are preloaded read-only reference fixtures. Select or create a workspace brand to upload new guideline PDFs.",
+        },
+        { status: 400 },
       );
     }
 

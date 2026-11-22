@@ -15,15 +15,9 @@ import {
 
 interface LandingViewProps {
   onGetStarted: () => void;
-  onExploreDemo?: () => Promise<void> | void;
-  enteringDemo?: boolean;
 }
 
-export function LandingView({
-  onGetStarted,
-  onExploreDemo,
-  enteringDemo = false,
-}: LandingViewProps) {
+export function LandingView({ onGetStarted }: LandingViewProps) {
   const prefersReducedMotion = useReducedMotion();
 
   const heroMotion = prefersReducedMotion
@@ -87,34 +81,16 @@ export function LandingView({
             <p className="text-sm sm:text-base text-[#524E4A] leading-relaxed max-w-xl">
               Check campaign copy, visual layouts, palettes, and claims against your approved brand rules. Every finding distinguishes supported usage, direct conflicts, and unverified claims before sign-off.
             </p>
-            <div className="pt-2 flex flex-wrap items-center gap-3">
-              {onExploreDemo && (
-                <button
-                  type="button"
-                  disabled={enteringDemo}
-                  onClick={() => {
-                    void onExploreDemo();
-                  }}
-                  className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] disabled:opacity-60 text-sm font-semibold transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
-                >
-                  <span>{enteringDemo ? "Opening Demo..." : "Explore the Teralune Demo"}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
+            <div className="pt-2">
               <button
                 type="button"
                 onClick={onGetStarted}
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-white border border-[#E7E1DA] text-[#141414] hover:bg-[#F3EDE8] text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
+                className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-sm font-semibold transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-[#141414] focus:ring-offset-2 focus:ring-offset-[#FAF8F6]"
               >
-                <span>{onExploreDemo ? "Custom Setup" : "Get Started"}</span>
-                {!onExploreDemo && <ArrowRight className="w-4 h-4" />}
+                <span>Enter IdentIQ</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-            {onExploreDemo && (
-              <p className="text-xs text-[#6B6560] max-w-lg">
-                Explore how IdentIQ checks advertisements against brand guidelines. No setup required.
-              </p>
-            )}
           </motion.div>
 
           {/* Bespoke Editorial Vector Governance Composition (Zero Stock Photos) */}

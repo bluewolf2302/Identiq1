@@ -27,6 +27,10 @@ import type {
   GuidelineDocumentSession,
   KnowledgeProposal,
 } from "@/lib/guidelines/document-repository";
+import {
+  TERALUNE_DEMO_BRAND_ID,
+  TERALUNE_GUIDELINES_PDF_URL,
+} from "@/lib/demo/teralune-demo-fixtures";
 import type { KnowledgeSection } from "@/lib/types";
 
 const CATEGORY_OPTIONS: Array<{ value: KnowledgeSection; label: string }> = [
@@ -107,6 +111,10 @@ export function GuidelinePdfReviewPanel() {
     reloadSelectedBrandKnowledge,
     notify,
   } = useIdentiq();
+
+  const isSampleBrand = Boolean(
+    selectedBrand?.isSample || selectedBrandId === TERALUNE_DEMO_BRAND_ID,
+  );
 
   const [sessions, setSessions] = useState<GuidelineDocumentSession[]>([]);
   const [activeDocId, setActiveDocId] = useState<string>("");
@@ -334,6 +342,12 @@ export function GuidelinePdfReviewPanel() {
   const submitPdfUpload = async (options?: { allowDuplicate?: boolean }) => {
     if (!selectedBrandId) {
       setUploadError("Please select or create a brand before uploading a guideline PDF.");
+      return;
+    }
+    if (isSampleBrand) {
+      setUploadError(
+        "Teralune sample guidelines (v1.0) are preloaded read-only reference fixtures. Select or create a workspace brand to upload custom guideline PDFs.",
+      );
       return;
     }
     if (!selectedFile) {
@@ -849,8 +863,8 @@ export function GuidelinePdfReviewPanel() {
 
           <button
             type="submit"
-            disabled={uploading || !selectedBrandId}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-[#141414] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#2A2A2A] disabled:cursor-wait disabled:opacity-60"
+            disabled={uploading || !selectedBrandId || isSampleBrand}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-[#141414] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#2A2A2A] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {uploading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -859,7 +873,9 @@ export function GuidelinePdfReviewPanel() {
             )}
             {uploading
               ? "Validating & extracting pages…"
-              : "Upload & Extract Rules"}
+              : isSampleBrand
+                ? "Sample Brand (Read-Only)"
+                : "Upload & Extract Rules"}
           </button>
         </form>
 
@@ -937,6 +953,32 @@ export function GuidelinePdfReviewPanel() {
                   );
                 })}
               </select>
+            </div>
+          ) : isSampleBrand ? (
+            <div className="rounded-[24px] border border-[#BAE0D0] bg-[#CDEEE0]/35 p-6 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className="text-[11px] font-semibold text-[#14532D]">
+                    Preloaded Sample Reference · Read-Only
+                  </span>
+                  <h4 className="text-base font-bold text-[#141414] mt-0.5">
+                    Teralune Brand Identity &amp; AI Guidelines (v1.0)
+                  </h4>
+                </div>
+                <FileText className="w-5 h-5 text-[#14532D] shrink-0" />
+              </div>
+              <p className="text-xs text-[#3F3B37] leading-relaxed">
+                All v1.0 governance rules, facts, claims policies, and colour/typography standards for this sample brand are already published in Brand Knowledge Hub. Create or select a workspace brand to upload and stage your own guideline PDFs.
+              </p>
+              <a
+                href={TERALUNE_GUIDELINES_PDF_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#141414] px-4 py-2 text-xs font-semibold text-white hover:bg-[#2A2A2A]"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open Teralune Guidelines PDF
+              </a>
             </div>
           ) : (
             <div className="rounded-[24px] border border-[#E7E1DA] bg-white p-8 text-center">

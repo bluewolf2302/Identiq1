@@ -46,10 +46,6 @@ import { ViewerAvatar } from "@/components/ViewerAvatar";
 import { resolveActiveActorIdentity } from "@/lib/viewer-profile";
 import { buildKnowledgeHubHref, buildNewReviewHref } from "@/lib/workspace-navigation";
 import { LATEST_KNOWLEDGE_VERSION_ID } from "@/lib/knowledge-versions";
-import {
-  TERALUNE_DEMO_BRAND_ID,
-  type DemoReadinessCheckResult,
-} from "@/lib/demo/teralune-demo-fixtures";
 
 const CONTENT_FILTERS: Array<{
   label: string;
@@ -87,16 +83,10 @@ export default function HomePage() {
     viewerProfile,
     profileHydrated,
     completeOnboarding,
-    enterTeraluneDemo,
-    isDemoWorkspace,
     replayGuidedTour,
   } = useIdentiq();
 
   const [entryStep, setEntryStep] = useState<"landing" | "onboarding">("landing");
-  const [enteringDemo, setEnteringDemo] = useState(false);
-  const [demoReadiness, setDemoReadiness] = useState<DemoReadinessCheckResult | null>(
-    null,
-  );
 
   // Filter States
   const [selectedContentType, setSelectedContentType] = useState<"All" | ContentType>("All");
@@ -109,24 +99,6 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMountedNow(new Date());
   }, []);
-
-  useEffect(() => {
-    if (!isDemoWorkspace || !viewerProfile.onboardingCompleted) return;
-    let cancelled = false;
-    fetch("/api/demo/readiness", { cache: "no-store" })
-      .then((res) => (res.ok ? (res.json() as Promise<DemoReadinessCheckResult>) : null))
-      .then((data) => {
-        if (!cancelled && data) {
-          setDemoReadiness(data);
-        }
-      })
-      .catch(() => {
-        // Ignore transient readiness fetch failures
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isDemoWorkspace, viewerProfile.onboardingCompleted]);
 
   const availableBrands = useMemo(
     () =>
@@ -184,20 +156,7 @@ export default function HomePage() {
         />
       );
     }
-    return (
-      <LandingView
-        onGetStarted={() => setEntryStep("onboarding")}
-        enteringDemo={enteringDemo}
-        onExploreDemo={async () => {
-          setEnteringDemo(true);
-          try {
-            await enterTeraluneDemo();
-          } finally {
-            setEnteringDemo(false);
-          }
-        }}
-      />
-    );
+    return <LandingView onGetStarted={() => setEntryStep("onboarding")} />;
   }
 
   const isFiltered =
@@ -241,9 +200,14 @@ export default function HomePage() {
                     <span>·</span>
                     <Link
                       href={knowledgeHubHref}
-                      className="font-semibold text-[#141414] hover:underline"
+                      className="font-semibold text-[#141414] hover:underline inline-flex items-center gap-1.5"
                     >
-                      {activeWorkspaceBrand.brandName}
+                      <span>{activeWorkspaceBrand.brandName}</span>
+                      {activeWorkspaceBrand.isSample && (
+                        <span className="px-1.5 py-0.5 rounded bg-[#CDEEE0] text-[#14532D] text-[10px] font-semibold">
+                          Sample
+                        </span>
+                      )}
                     </Link>
                   </>
                 )}
@@ -283,65 +247,6 @@ export default function HomePage() {
               </Link>
             </div>
           </div>
-
-          {isDemoWorkspace && (
-            <section
-              aria-label="Teralune demo workspace guide"
-              className="bg-[#F3EDE8] border border-[#E7E1DA] rounded-[22px] p-4 sm:p-5 space-y-3"
-            >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div className="space-y-1 min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#14532D]">
-                    Demo Workspace · Teralune Brand Identity &amp; AI Guidelines (v1.0)
-                  </p>
-                  <p className="text-xs text-[#3F3B37] leading-relaxed">
-                    Inspect published Teralune rules and brand assets, or launch a live review with the supplied compliant and risky advertisement PDFs.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <Link
-                    href="/assets"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-[#E7E1DA] hover:border-[#141414] text-xs font-semibold text-[#141414] transition-colors whitespace-nowrap"
-                  >
-                    Open Asset Library
-                  </Link>
-                  <Link
-                    href={`/reviews/new?brandId=${encodeURIComponent(TERALUNE_DEMO_BRAND_ID)}`}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#141414] text-white hover:bg-[#2B2B2B] text-xs font-semibold transition-colors whitespace-nowrap"
-                  >
-                    Try Teralune Demo Review
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              </div>
-
-              {demoReadiness &&
-                (demoReadiness.status === "attention_needed" ||
-                  !demoReadiness.aiProviderReady) && (
-                  <div
-                    role="status"
-                    className="bg-[#FFF4E5] border border-[#FFE2BA] rounded-xl px-3.5 py-2.5 text-xs text-[#78350F] space-y-1"
-                  >
-                    <p className="font-semibold">
-                      Demo Environment Notice
-                    </p>
-                    {demoReadiness.warnings.map((warn, idx) => (
-                      <p key={`readiness-warn-${idx}`} className="text-[11px] leading-snug">
-                        • {warn}
-                      </p>
-                    ))}
-                    {!demoReadiness.teraluneBrandReady && (
-                      <Link
-                        href={`/knowledge-hub?brandId=${encodeURIComponent(TERALUNE_DEMO_BRAND_ID)}`}
-                        className="inline-block text-[11px] font-semibold underline text-[#141414]"
-                      >
-                        Open Knowledge Hub to verify guidelines
-                      </Link>
-                    )}
-                  </div>
-                )}
-            </section>
-          )}
 
           {/* Comprehensive Multi-Filter Bar */}
           <div className="bg-[#F3EDE8]/70 border border-[#E7E1DA] rounded-2xl p-3 sm:p-3.5 space-y-3">

@@ -207,12 +207,12 @@ export default function LoginPage() {
   return (
     <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 sm:p-6 bg-[#FAF8F6]">
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        {/* Prominent Non-Authoritative Teralune Demo Card */}
+        {/* Optional Sample Brand Sandbox Card */}
         <section className="lg:col-span-6 bg-[#F3EDE8] border border-[#E7E1DA] rounded-[28px] p-7 sm:p-8 flex flex-col justify-between gap-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[#14532D]">
-                Guided Product Sandbox
+                Optional Sample Brand
               </span>
               <span className="text-[11px] font-mono text-[#524E4A]">
                 Teralune · v1.0
@@ -221,10 +221,10 @@ export default function LoginPage() {
 
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#141414] text-balance">
-                Explore the Teralune Demo
+                Try Identiq with Teralune
               </h1>
               <p className="text-sm text-[#3F3B37] leading-relaxed">
-                Explore how IdentIQ checks advertisements against brand guidelines. No setup required.
+                Evaluate how Identiq reviews campaign copy and PDFs against a preloaded sample brand before connecting your own organisation.
               </p>
             </div>
 
@@ -235,7 +235,7 @@ export default function LoginPage() {
                   <span>Published Guidelines</span>
                 </div>
                 <p className="text-[11px] text-[#524E4A] leading-snug">
-                  Pre-loaded Teralune Brand Identity &amp; AI Guidelines (v1.0) and curated brand assets.
+                  Pre-loaded Teralune Brand Identity &amp; AI Guidelines (v1.0) and sample visual assets.
                 </p>
               </div>
               <div className="bg-white/80 border border-[#E7E1DA] rounded-2xl p-3 space-y-1">
@@ -249,17 +249,17 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Optional Non-Authoritative Demo Persona Selector */}
+            {/* Optional Non-Authoritative Workspace Perspective Selector */}
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-[#141414]">
-                  Demo Perspective
+                  Workspace Perspective
                 </span>
                 <span className="text-[11px] text-[#6B6560]">
-                  Display only · Non-authoritative
+                  Display preference · Non-authoritative
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Demo persona selector">
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Workspace perspective selector">
                 {DEMO_PERSONA_OPTIONS.map((option) => {
                   const active = selectedPersona === option.persona;
                   return (
@@ -296,18 +296,18 @@ export default function LoginPage() {
               {enteringDemo ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening Teralune Demo...
+                  Opening Sample Brand...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-[#CDEEE0]" />
-                  Explore the Teralune Demo
+                  Open Teralune Sample Brand
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
             <p className="text-[11px] text-center text-[#6B6560]">
-              Isolated sandbox workspace — separate from customer organisation records.
+              Isolated sample sandbox — separate from customer organisation records.
             </p>
           </div>
         </section>

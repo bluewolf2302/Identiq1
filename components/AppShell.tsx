@@ -59,7 +59,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     selectedBrandId,
     selectedBrandVersionId,
     persistenceMode,
-    isDemoWorkspace,
     user,
     session,
     signOut,
@@ -99,8 +98,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const modeLabel =
     persistenceMode === "AUTHENTICATED_SUPABASE"
       ? "Cloud Workspace"
-      : isDemoWorkspace
-      ? "Demo Workspace"
       : "Workspace";
 
   const activeBrandLabel = selectedBrand
@@ -150,14 +147,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
             <span>Identiq</span>
           </Link>
-          {isDemoWorkspace && (
-            <Link
-              href="/login"
-              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/12 text-[#CDEEE0] hover:bg-white/20 text-[11px] font-semibold tracking-tight transition-colors"
-            >
-              Demo Workspace
-            </Link>
-          )}
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
@@ -225,9 +214,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B6560] truncate">
                 Active Brand · {modeLabel}
               </p>
-              <p className="text-xs font-bold text-[#141414] truncate mt-0.5">
-                {activeBrandLabel}
-              </p>
+              <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                <p className="text-xs font-bold text-[#141414] truncate">
+                  {activeBrandLabel}
+                </p>
+                {selectedBrand?.isSample && (
+                  <span className="px-1.5 py-0.5 rounded bg-[#CDEEE0] text-[#14532D] text-[10px] font-semibold shrink-0">
+                    Sample
+                  </span>
+                )}
+              </div>
               {activeVersionBadge && (
                 <p className="text-[10px] font-mono text-[#524E4A] truncate mt-0.5">
                   {selectedBrandVersionId !== LATEST_KNOWLEDGE_VERSION_ID
@@ -342,9 +338,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B6560] truncate">
                     Active Brand · {modeLabel}
                   </p>
-                  <p className="text-xs font-bold text-[#141414] truncate mt-0.5">
-                    {activeBrandLabel}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                    <p className="text-xs font-bold text-[#141414] truncate">
+                      {activeBrandLabel}
+                    </p>
+                    {selectedBrand?.isSample && (
+                      <span className="px-1.5 py-0.5 rounded bg-[#CDEEE0] text-[#14532D] text-[10px] font-semibold shrink-0">
+                        Sample
+                      </span>
+                    )}
+                  </div>
                 </Link>
 
                 <Link

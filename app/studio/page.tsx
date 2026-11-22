@@ -39,6 +39,10 @@ import {
   FindingSeverity,
   ReviewFinding,
 } from "@/lib/types";
+import {
+  formatContextWarning,
+  sanitizeClientDiagnosticMessage,
+} from "@/lib/analysis/error-sanitizer";
 
 const CATEGORY_TOOLBAR: Array<{
   label: string;
@@ -383,24 +387,6 @@ function ReviewStudioInner() {
                         </span>
                       </>
                     )}
-                    {Boolean(
-                      activeReview.fallbackUsed ||
-                        activeReview.providerUsed?.includes("openrouter") ||
-                        activeReview.visualSummary?.warnings.some((w) =>
-                          w.toLowerCase().includes("fallback"),
-                        ),
-                    ) && (
-                      <>
-                        <span>·</span>
-                        <span
-                          aria-label="Backup review path used"
-                          className="px-2.5 py-0.5 rounded-full bg-[#DDF0FA] border border-[#CBE2EF] text-[#0C4A6E] font-semibold text-[11px] inline-flex items-center gap-1"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          Resilient Review Mode
-                        </span>
-                      </>
-                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#141414]">
@@ -509,17 +495,19 @@ function ReviewStudioInner() {
                   <p className="leading-relaxed text-[#524E4A]">
                     {activeReview.contextWarnings?.includes("NO_PUBLISHED_KNOWLEDGE")
                       ? "This brand currently has no published Knowledge Hub rules covering this submission. Publish rules in Brand Knowledge Hub to unlock full deterministic and AI brand verification."
-                      : "OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were successfully verified. AI semantic interpretation was temporarily unavailable or had partial coverage, but all evidence findings below are fully actionable."}
+                      : "OCR copy extraction, brand palette checks, typography, logos, and deterministic rules were verified. Extended AI visual coverage was limited during this run, and all findings below remain actionable."}
                   </p>
                   {activeReview.contextWarnings && activeReview.contextWarnings.length > 0 && (
-                    <p className="text-[11px] text-[#664D03]">
-                      Brand context notice: {activeReview.contextWarnings.join(", ")}
-                    </p>
+                    <div className="text-[11px] text-[#664D03] space-y-0.5">
+                      {activeReview.contextWarnings.map((code, idx) => (
+                        <p key={`ctx-warn-${idx}`}>• {formatContextWarning(code)}</p>
+                      ))}
+                    </div>
                   )}
                   {activeReview.visualSummary?.warnings && activeReview.visualSummary.warnings.length > 0 && (
                     <div className="pt-1 border-t border-[#E7D89E]/60 text-[11px] text-[#664D03] space-y-0.5">
                       {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
-                        <p key={`warn-${i}`}>• {warn}</p>
+                        <p key={`warn-${i}`}>• {sanitizeClientDiagnosticMessage(warn)}</p>
                       ))}
                     </div>
                   )}
@@ -535,11 +523,11 @@ function ReviewStudioInner() {
                   >
                     <p className="font-bold flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-[#0284C7] shrink-0" />
-                      Pipeline Notice
+                      Inspection Notice
                     </p>
                     {activeReview.visualSummary.warnings.slice(0, 2).map((warn, i) => (
                       <p key={`warn-${i}`} className="text-[#0369A1]">
-                        • {warn}
+                        • {sanitizeClientDiagnosticMessage(warn)}
                       </p>
                     ))}
                   </div>
@@ -683,7 +671,10 @@ function ReviewStudioInner() {
                             Page {clampedPageNumber} failed to render
                           </p>
                           <p className="text-[11px] text-[#7F1D1D]">
-                            {currentPageObj.error || "Page processing error."}
+                            {sanitizeClientDiagnosticMessage(
+                              currentPageObj.error,
+                              "Page processing error.",
+                            )}
                           </p>
                         </div>
                       ) : currentPageImageUrl ? (

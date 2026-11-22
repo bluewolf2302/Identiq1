@@ -1005,6 +1005,84 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchMemberships, fetchPrimaryBrand, tenancyManager, updatePersistenceStatus]);
 
+  // Ensure authenticated users with an org enter workspace cleanly and trigger compulsory first-run tour
+  const authFullName = user?.user_metadata?.full_name;
+  const authRoleMeta = user?.user_metadata?.role;
+  const authEmail = user?.email;
+  const hasAuthenticatedOrg = Boolean(user && organisationId);
+  const vpName = viewerProfile.name;
+  const vpRole = viewerProfile.role;
+  const vpAvatarId = viewerProfile.avatarId;
+  const vpCustomAvatarDataUrl = viewerProfile.customAvatarDataUrl;
+  const vpOnboardingCompleted = viewerProfile.onboardingCompleted;
+  const vpGuidedTourCompleted = viewerProfile.guidedTourCompleted;
+  const vpUpdatedAt = viewerProfile.updatedAt;
+  useEffect(() => {
+    if (!hydrated || !profileHydrated) return;
+
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+
+      if (hasAuthenticatedOrg && !vpOnboardingCompleted) {
+        const snapshotProfile: ViewerProfile = {
+          name: vpName,
+          role: vpRole,
+          avatarId: vpAvatarId,
+          customAvatarDataUrl: vpCustomAvatarDataUrl,
+          onboardingCompleted: vpOnboardingCompleted,
+          guidedTourCompleted: vpGuidedTourCompleted,
+          updatedAt: vpUpdatedAt,
+        };
+        const resolvedActor = resolveActiveActorIdentity({
+          viewerProfile: snapshotProfile,
+          authUser: {
+            email: authEmail,
+            user_metadata: { full_name: authFullName, role: authRoleMeta },
+          },
+        });
+        const next: ViewerProfile = {
+          ...snapshotProfile,
+          name: resolvedActor.name,
+          role: resolvedActor.role,
+          onboardingCompleted: true,
+          guidedTourCompleted: vpGuidedTourCompleted,
+          updatedAt: new Date().toISOString(),
+        };
+        saveViewerProfile(next);
+        setViewerProfile(next);
+        setSettings((prev) => ({
+          ...prev,
+          reviewerName: resolvedActor.name,
+          reviewerRole: resolvedActor.role || prev.reviewerRole,
+        }));
+        return;
+      }
+
+      if (vpOnboardingCompleted && !vpGuidedTourCompleted) {
+        setGuidedTourOpen(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hydrated,
+    profileHydrated,
+    hasAuthenticatedOrg,
+    authEmail,
+    authFullName,
+    authRoleMeta,
+    vpName,
+    vpRole,
+    vpAvatarId,
+    vpCustomAvatarDataUrl,
+    vpOnboardingCompleted,
+    vpGuidedTourCompleted,
+    vpUpdatedAt,
+  ]);
+
   // Sync to localStorage in DEMO_LOCAL or CONFIGURED_UNAUTHENTICATED modes
   useEffect(() => {
     if (!hydrated) return;
@@ -1490,6 +1568,24 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
   // 1. Submit Review (RPC 1)
   const addReview = async (review: ReviewSubmission, explicitBrandId?: string) => {
+    const isSampleReview =
+      review.brandId === TERALUNE_DEMO_BRAND_ID ||
+      explicitBrandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (isSampleReview && persistenceMode === "AUTHENTICATED_SUPABASE") {
+      setReviews((prev) => [review, ...prev]);
+      setActiveReviewId(review.id);
+      logActivity({
+        reviewId: review.id,
+        actor: review.submittedBy,
+        action: "evaluated sample content against Teralune v1.0 guidelines:",
+        target: review.title,
+        type: "submitted",
+      });
+      notify(`"${review.title}" ready in Review Studio`);
+      return;
+    }
+
     const { organisationId: targetOrgId, brandId: targetBrandId } =
       tenancyManager.validateReviewSubmissionTenancy({
         persistenceMode,
@@ -1585,7 +1681,14 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
           : "resolved",
     });
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      targetReview.brandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         await reviewRepo.updateReviewStatus({
           reviewId,
@@ -1606,6 +1709,11 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
 
   // 3. Toggle Finding Resolved (RPC 3)
   const toggleFindingResolved = async (reviewId: string, findingId: string) => {
+    const existingReview = reviews.find((r) => r.id === reviewId);
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      existingReview?.brandId === TERALUNE_DEMO_BRAND_ID;
+
     let resolvedNow = false;
     let targetTitle = "";
     const prevReviews = reviews;
@@ -1644,7 +1752,10 @@ export function IdentiqProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         const res = await reviewRepo.toggleFindingResolved({
           reviewId,
@@ -1793,7 +1904,14 @@ const prevActivities = activities;
       });
     }
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      targetReview.brandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         const res = await reviewRepo.applyFindingCorrection({
           reviewId,
@@ -1880,7 +1998,14 @@ const prevActivities = activities;
       type: "finding_decision",
     });
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      targetReview.brandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         await reviewRepo.updateFindingDecision({
           reviewId,
@@ -1958,7 +2083,14 @@ const prevActivities = activities;
       });
     }
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      targetReview?.brandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         await reviewRepo.addFindingComment({
           reviewId,
@@ -2012,7 +2144,14 @@ const prevActivities = activities;
       });
     }
 
-    if (persistenceMode === "AUTHENTICATED_SUPABASE" || persistenceMode === "SHARED_DEMO") {
+    const isSampleLocalReview =
+      persistenceMode === "AUTHENTICATED_SUPABASE" &&
+      targetReview?.brandId === TERALUNE_DEMO_BRAND_ID;
+
+    if (
+      (persistenceMode === "AUTHENTICATED_SUPABASE" && !isSampleLocalReview) ||
+      persistenceMode === "SHARED_DEMO"
+    ) {
       try {
         const res = await reviewRepo.addManualFinding({
           reviewId,
@@ -2184,16 +2323,28 @@ const prevActivities = activities;
           typeof window !== "undefined"
             ? localStorage.getItem(BRAND_STORAGE_KEY)
             : null;
+        if (
+          persistenceMode === "AUTHENTICATED_SUPABASE" &&
+          storedBrandId === TERALUNE_DEMO_BRAND_ID &&
+          typeof window !== "undefined"
+        ) {
+          localStorage.removeItem(BRAND_STORAGE_KEY);
+        }
+        const safeStoredBrandId =
+          persistenceMode === "AUTHENTICATED_SUPABASE" &&
+          storedBrandId === TERALUNE_DEMO_BRAND_ID
+            ? null
+            : storedBrandId;
         const currentSelected = selectedBrandIdRef.current;
         const preferred =
           persistenceMode === "AUTHENTICATED_SUPABASE"
             ? brands.find((b) => b.brandId === currentSelected) ||
-              brands.find((b) => b.brandId === storedBrandId) ||
+              brands.find((b) => b.brandId === safeStoredBrandId) ||
               brands.find((b) => !b.isSample) ||
               brands[0] ||
               null
             : brands.find((b) => b.brandId === currentSelected) ||
-              brands.find((b) => b.brandId === storedBrandId) ||
+              brands.find((b) => b.brandId === safeStoredBrandId) ||
               brands.find((b) => b.brandId === TERALUNE_DEMO_BRAND_ID) ||
               brands[0] ||
               null;
@@ -2220,6 +2371,9 @@ const prevActivities = activities;
           }
           await loadKnowledgeForBrand(preferred.brandId, orgParam);
         } else {
+          if (persistenceMode === "AUTHENTICATED_SUPABASE" && typeof window !== "undefined") {
+            localStorage.removeItem(BRAND_STORAGE_KEY);
+          }
           setSelectedBrandId(null);
           setSelectedBrandVersionId(LATEST_KNOWLEDGE_VERSION_ID);
           setKnowledge([]);
@@ -2869,6 +3023,7 @@ const prevActivities = activities;
     notify("Switched to local workspace", "info");
   }, [tenancyManager, notify, updatePersistenceStatus]);
 
+  // Display preference only: never overwrites viewer identity, auth state, or onboarding/tour status
   const setDemoPersona = useCallback((persona: DemoPersona) => {
     const resolved = resolveDemoPersonaConfig(persona);
     setDemoPersonaState(resolved.persona);
@@ -2879,24 +3034,6 @@ const prevActivities = activities;
         // Ignore storage restrictions
       }
     }
-    setViewerProfile((prev) => {
-      const next: ViewerProfile = {
-        ...prev,
-        name: resolved.displayName,
-        role: resolved.roleTitle,
-        avatarId: resolved.avatarId,
-        onboardingCompleted: true,
-        guidedTourCompleted: true,
-        updatedAt: new Date().toISOString(),
-      };
-      saveViewerProfile(next);
-      return next;
-    });
-    setSettings((prev) => ({
-      ...prev,
-      reviewerName: resolved.displayName,
-      reviewerRole: resolved.roleTitle,
-    }));
   }, []);
 
   const enterTeraluneDemo = useCallback(
@@ -2914,22 +3051,19 @@ const prevActivities = activities;
         }
       }
 
-      const nextProfile: ViewerProfile = {
-        name: chosenPersona.displayName,
-        role: chosenPersona.roleTitle,
-        avatarId: chosenPersona.avatarId,
-        onboardingCompleted: true,
-        guidedTourCompleted: true,
-        updatedAt: new Date().toISOString(),
-      };
-      setViewerProfile(nextProfile);
-      saveViewerProfile(nextProfile);
-      setGuidedTourOpen(false);
-      setSettings((prev) => ({
-        ...prev,
-        reviewerName: nextProfile.name,
-        reviewerRole: nextProfile.role,
-      }));
+      setViewerProfile((prev) => {
+        const next: ViewerProfile = {
+          ...prev,
+          name: prev.name.trim() ? prev.name : "Guest Reviewer",
+          role: prev.onboardingCompleted ? prev.role : chosenPersona.roleTitle,
+          avatarId: prev.onboardingCompleted ? prev.avatarId : chosenPersona.avatarId,
+          onboardingCompleted: true,
+          guidedTourCompleted: prev.guidedTourCompleted,
+          updatedAt: new Date().toISOString(),
+        };
+        saveViewerProfile(next);
+        return next;
+      });
 
       const hasSupabaseEnv = Boolean(
         process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&

@@ -3,13 +3,22 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  BrandKnowledgeRepositoryError,
   CrossTenantBrandAccessError,
   HostedPersistenceUnavailableError,
   ManagedKnowledgeSectionSchema,
   StructuredFactMetadataSchema,
   getPersistenceEnvironmentInfo,
 } from "@/lib/brand-context";
+import { TERALUNE_DEMO_BRAND_ID } from "@/lib/demo/teralune-demo-fixtures";
 import { callServerPostgrest } from "@/lib/supabase/server";
+
+const SUPABASE_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isSafeSupabaseUuid(value: string | null | undefined): boolean {
+  return Boolean(value && SUPABASE_UUID_REGEX.test(value.trim()));
+}
 
 export const GuidelinePageStatusSchema = z.enum([
   "TEXT_EXTRACTED",
@@ -534,6 +543,13 @@ export class SupabaseGuidelineDocumentRepository
     organisationId: string;
     includeDiscarded?: boolean;
   }): Promise<GuidelineDocumentSession[]> {
+    if (
+      query.brandId === TERALUNE_DEMO_BRAND_ID ||
+      !isSafeSupabaseUuid(query.brandId)
+    ) {
+      return [];
+    }
+
     const res = await callServerPostgrest<SupabaseAuditSessionRow[]>(
       `/rest/v1/audit_logs?brand_id=eq.${encodeURIComponent(query.brandId)}&action=eq.GUIDELINE_DOCUMENT_SESSION&entity_type=eq.guideline_document&order=created_at.desc`,
       { useServiceRole: true },
@@ -605,6 +621,16 @@ export class SupabaseGuidelineDocumentRepository
   async saveDocumentSession(
     session: GuidelineDocumentSession,
   ): Promise<GuidelineDocumentSession> {
+    if (
+      session.brandId === TERALUNE_DEMO_BRAND_ID ||
+      !isSafeSupabaseUuid(session.brandId) ||
+      !isSafeSupabaseUuid(session.organisationId)
+    ) {
+      throw new BrandKnowledgeRepositoryError(
+        "Sample brand guidelines are read-only reference fixtures. Select or create a workspace brand to upload and stage guideline PDFs.",
+      );
+    }
+
     const validated = GuidelineDocumentSessionSchema.parse(
       syncSessionLifecycleStatus(session),
     );

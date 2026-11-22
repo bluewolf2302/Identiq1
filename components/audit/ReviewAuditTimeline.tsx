@@ -16,6 +16,7 @@ import {
   User,
 } from "lucide-react";
 import { ReviewAuditEntry } from "@/lib/audit-history";
+import { formatDisplayGovernanceEngine } from "@/lib/analysis/error-sanitizer";
 
 interface ReviewAuditTimelineProps {
   entries: ReviewAuditEntry[];
@@ -267,9 +268,9 @@ export function ReviewAuditTimeline({ entries }: ReviewAuditTimelineProps) {
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#6B6560]">Provider:</span>{" "}
+                          <span className="text-[#6B6560]">Engine:</span>{" "}
                           <span className="font-semibold text-[#141414]">
-                            {entry.details.providerUsed || "Unknown"}
+                            {formatDisplayGovernanceEngine(entry.details.providerUsed)}
                           </span>
                         </div>
                         {entry.details?.complianceScore !== undefined && (

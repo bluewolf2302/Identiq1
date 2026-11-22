@@ -12,6 +12,7 @@ import {
 } from "../brand-context";
 import { VisualValidationError, type VisualAnalysisResult } from "../visual";
 import { mergeFindings } from "./finding-merger";
+import { sanitizeClientDiagnosticMessage } from "./error-sanitizer";
 import type {
   AnalysisOrchestratorDependencies,
   BrandContextRetriever,
@@ -78,7 +79,8 @@ function defaultRunId(): string {
 }
 
 function toSafeFailureMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Analysis dependency failed.";
+  const raw = error instanceof Error ? error.message : "Analysis dependency failed.";
+  return sanitizeClientDiagnosticMessage(raw, "Analysis service encountered an error.");
 }
 
 function combineSubmissionAndOcrText(
@@ -239,11 +241,22 @@ export class AnalysisOrchestrator {
                 imageWidth: p.imageWidth,
                 imageHeight: p.imageHeight,
                 status: p.status,
-                ...(p.error ? { error: p.error } : {}),
+                ...(p.error
+                  ? {
+                      error: sanitizeClientDiagnosticMessage(
+                        p.error,
+                        `Page ${p.pageNumber} could not be processed.`,
+                      ),
+                    }
+                  : {}),
                 ...(p.previewDataUrl ? { previewDataUrl: p.previewDataUrl } : {}),
               })),
-              warnings: visualResult.warnings,
-              errors: visualResult.errors,
+              warnings: visualResult.warnings.map((w) =>
+                sanitizeClientDiagnosticMessage(w),
+              ),
+              errors: visualResult.errors.map((e) =>
+                sanitizeClientDiagnosticMessage(e),
+              ),
             },
           }
         : {}),
